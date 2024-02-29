@@ -31,7 +31,16 @@ Quick installation can be achieved by replicating the environment in Anaconda:
      conda env create -f environment.yml
   4. Activate the environment:
      ```python
-     conda activate flowmodel
+     conda activate flowenv
+
+  If numba was not installed, try:
+      ```python
+      conda install -c numba numba
+  
+  If numpy-indexed was not installed, try:
+      ```python
+      pip install numpy-indexed
+
 
 # Running pnflowPy
 To run the pnflowPy , you should first generate the networks from the images using the **[pnextract](https://github.com/ImperialCollegeLondon/pnextract)** or **[poreXtractor](https://github.com/ImperialCollegeLondon/poreOccupancyAnalysis)** module, see the documentation of pnextract executable. Then you should copy the generated networks into the data folder and edit the input_pnflow.dat by setting the NETWORK keyword and other keywords. Full descriptions of the keywords in the input_pnflow.dat can be found in doc/pnflow_guide.pdf inside the **[pnflow](https://github.com/ImperialCollegeLondon/pnflow)** module. However, only the keywords inside the input_pnflow.dat have been implemented, others might be added later for more robustness.
