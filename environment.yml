@@ -373,7 +373,6 @@ dependencies:
       - babel==2.11.0
       - breathe==4.34.0
       - charset-normalizer==2.1.1
-      - chebpy==0.4.3
       - cython==0.29.32
       - docopt==0.6.2
       - docrep==0.3.2
