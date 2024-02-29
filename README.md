@@ -48,7 +48,7 @@ The generated network files of a 1000 cube water-wet Bentheimer sandstone have b
 It would be very great to make any contributions to this project to make it better. If you would like to contribute, please fork the repo and create a pull request or simply open an issue with the tag "contribution". Please give this project a star. Thank you!
 
 # License
-Distributed under the MIT License. See LICENSE.txt for more information.
+Distributed under the MIT License.
 
 # Contact and References
 For contacts and references please see: https://www.imperial.ac.uk/earth-science/research/research-groups/pore-scale-modelling
