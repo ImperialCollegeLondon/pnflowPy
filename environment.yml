@@ -1,4 +1,4 @@
-name: flowmodel
+name: flowenv
 channels:
   - anaconda
   - sklam
@@ -385,7 +385,7 @@ dependencies:
       - llvmlite==0.39.1
       - matplotlib==3.8.2
       - numba==0.56.4
-      - numpy-indexed==0.3.5
+      - numpy_indexed==0.3.5
       - pip==24.0
       - pipreqs==0.4.13
       - pyamg==5.0.1.post1.dev3+g4f604ef
