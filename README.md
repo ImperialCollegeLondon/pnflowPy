@@ -55,5 +55,5 @@ For contacts and references please see: https://www.imperial.ac.uk/earth-science
 
 Alternatively, contact Ademola Adebimpe:
 
-  - Email: a.adebimpe21@imperial.ac.uk
-  - Additional Email: ai.bimpe@gmail.com
+  - Email: **a.adebimpe21@imperial.ac.uk**
+  - Additional Email: **ai.bimpe@gmail.com**
