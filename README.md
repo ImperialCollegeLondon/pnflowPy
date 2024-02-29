@@ -42,6 +42,8 @@ You can then run the pnflowPy by doing the following:
       ```python
       python main.py data/input_pnflow.dat
 
+The generated network files of a 1000 cube water-wet Bentheimer sandstone have been provided in the data folder (image can be found in https://www.imperial.ac.uk/earth-science/research/research-groups/pore-scale-modelling/micro-ct-images-and-networks/) and this could be used for an example.
+
 # Contributions
 It would be very great to make any contributions to this project to make it better. If you would like to contribute, please fork the repo and create a pull request or simply open an issue with the tag "contribution". Please give this project a star. Thank you!
 
