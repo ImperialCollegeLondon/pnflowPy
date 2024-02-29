@@ -34,10 +34,13 @@ Quick installation can be achieved by replicating the environment in Anaconda:
      conda activate flowmodel
 
 # Running pnflowPy
-You can run the pnflowPy by running the following command in terminal or in Windows command-prompt (cmd):
-    ```python
-    python main.py input_pnflow.dat
-This will work if pnflow is in system PATH. If otherwise, type the full path to the pnflow.
+You can run the pnflowPy by doing the following:
+  1.  Change directory into the pnflowPy folder.
+  2.  Running the following command in terminal or in Windows command-prompt (cmd):
+      ```python
+      python main.py input_pnflow.dat
+
+This will work if input_pnflow.dat is inside the pnflowPy file. If otherwise, type the full path to the input_pnflow.dat.
 
 
 
