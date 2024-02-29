@@ -38,9 +38,9 @@ You can run the pnflowPy by doing the following:
   1.  Change directory into the pnflowPy folder.
   2.  Running the following command in terminal or in Windows command-prompt (cmd):
       ```python
-      python main.py input_pnflow.dat
+      python main.py data/input_pnflow.dat
 
-This will work if input_pnflow.dat is inside the pnflowPy file. If otherwise, type the full path to the input_pnflow.dat.
+The input_pnflow.dat file contains
 
 
 
