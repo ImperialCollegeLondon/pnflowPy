@@ -33,7 +33,19 @@ Quick installation can be achieved by replicating the environment in Anaconda:
      ```python
      conda activate flowmodel
 
+# Running pnflowPy
+You can run the pnflowPy by running the following command in terminal or in Windows command-prompt (cmd):
+    ```python
+    python main.py input_pnflow.dat
+This will work if pnflow is in system PATH. If otherwise, type the full path to the pnflow.
 
+
+
+# Contributions
+It would be very great to make any contributions to this project to make it better. If you would like to contribute, please fork the repo and create a pull request or simply open an issue with the tag "contribution". Please give this project a star. Thank you!
+
+# License
+Distributed under the MIT License. See LICENSE.txt for more information.
 
 # Contact and References
 For contacts and references please see: https://www.imperial.ac.uk/earth-science/research/research-groups/pore-scale-modelling
