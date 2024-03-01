@@ -33,11 +33,11 @@ Quick installation can be achieved by replicating the environment in Anaconda:
      ```python
      conda activate flowenv
 
-  If numba was not installed, try:
+  - If numba was not installed, try:
       ```python
       conda install -c numba numba
   
-  If numpy-indexed was not installed, try:
+  - If numpy-indexed was not installed, try:
       ```python
       pip install numpy-indexed
 
