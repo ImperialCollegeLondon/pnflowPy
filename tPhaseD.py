@@ -10,11 +10,12 @@ from utilities import Computations
 from sPhase import SinglePhase
 
 class TwoPhaseDrainage(SinglePhase):
-    def __new__(cls, obj, writeData=False):
+    cycle = 0
+    def __new__(cls, obj, writeData=False, writeTrappedData=False):
         obj.__class__ = TwoPhaseDrainage
         return obj
     
-    def __init__(self, obj, writeData=False):
+    def __init__(self, obj, writeData=False, writeTrappedData=False):
         self.do = Computations(self)
         
         self.fluid = np.zeros(self.totElements, dtype='int')
@@ -76,10 +77,14 @@ class TwoPhaseDrainage(SinglePhase):
         self.capPresMax = 0
         self.capPresMin = 0
         self.is_oil_inj = True
+        self.cycle += 1
         self.writeData = writeData
+        self.writeTrappedData = writeTrappedData
 
-        self.primary = True
-        self.writeTrappedData = True
+        self.qW, self.qNW = 0.0, 0.0
+        self.krw, self.krnw = 0.0, 0.0
+        self.totNumFill = 0
+       
 
     @property
     def AreaWPhase(self):
@@ -102,10 +107,12 @@ class TwoPhaseDrainage(SinglePhase):
     
     def drainage(self):
         start = time()
-        print('--------------------------------------------------------------')
-        print('---------------------Two Phase Drainage Process---------------')
+        print('---------------------------------------------------------------------------')
+        print('-------------------------Two Phase Drainage Cycle {}------------------------'.format(self.cycle))
 
-        if self.writeData: self.__writeHeadersD__()
+        if self.writeData:
+            self.__fileName__()
+            self.__writeHeadersD__()
         else: self.resultD_str = ""
 
         self.SwTarget = max(self.finalSat, self.satW-self.dSw*0.5)
@@ -113,6 +120,7 @@ class TwoPhaseDrainage(SinglePhase):
             self.minDeltaPc+abs(
              self.capPresMax)*self.deltaPcFraction)*0.1)
         self.oldPcTarget = 0
+        self.resultD_str = self.do.writeResult(self.resultD_str, self.capPresMin)
 
         while self.filling:
             self.oldSatW = self.satW
@@ -376,18 +384,26 @@ class TwoPhaseDrainage(SinglePhase):
             arrr]/self.AreaSPhase[arrr]*self.gnwSPhase[arrr], 0.0)
         
 
-    def __writeHeadersD__(self):
-        self._num = 1
+    def __fileName__(self):
         result_dir = "./results_csv/"
         os.makedirs(os.path.dirname(result_dir), exist_ok=True)
-        while True:         
-            file_name = os.path.join(result_dir, "Flowmodel_"+
-                                self.title+"_Drainage_"+str(self._num)+".csv")
-            if os.path.isfile(file_name): self._num += 1
-            else:
-                break
+        if not hasattr(self, '_num'):
+            self._num = 1
+            while True:         
+                file_name = os.path.join(
+                    result_dir, "Flowmodel_"+self.title+"_Drainage_cycle"+str(
+                        self.cycle)+"_"+str(self._num)+".csv")
+                if os.path.isfile(file_name): self._num += 1
+                else:
+                    break
+            self.file_name = file_name
+        else:
+            self.file_name = os.path.join(
+                result_dir, "Flowmodel_"+self.title+"_Drainage_cycle"+str(self.cycle)+\
+                    "_"+str(self._num)+".csv")
+        
 
-        self.file_name = file_name
+    def __writeHeadersD__(self):
         self.resultD_str="======================================================================\n"
         self.resultD_str+="# Fluid properties:\nsigma (mN/m)  \tmu_w (cP)  \tmu_nw (cP)\n"
         self.resultD_str+="# \t%.6g\t\t%.6g\t\t%.6g" % (

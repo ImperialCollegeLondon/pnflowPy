@@ -7,6 +7,7 @@ from inputData import InputData
 from network import Network
 from sPhase import SinglePhase
 from tPhaseD import TwoPhaseDrainage
+from SecondaryProcesses import SecDrainage, SecImbibition
 from tPhaseImb import TwoPhaseImbibition
 from plot import makePlot
 
@@ -39,27 +40,40 @@ def main():
         compWithPrevData = True
         drainPlot = False
         imbibePlot = False
-        probablePlot = False
         writeData = True
-
+        writeTrappedData = True
+        fillTillNWDisconnected = True
 
         # two Phase simulations
         if input_data.satControl():
-            for cycle in range(len(input_data.satControl())):
+            firstDrainCycle = True
+            firstImbCycle = True
+            netsim.fillTillNWDisconnected = fillTillNWDisconnected
+            for j in range(len(input_data.satControl())):
                 netsim.finalSat, Pc, netsim.dSw, netsim.minDeltaPc,\
                  netsim.deltaPcFraction, netsim.calcKr, netsim.calcI,\
                  netsim.InjectFromLeft, netsim.InjectFromRight,\
                  netsim.EscapeFromLeft, netsim.EscapeFromRight =\
-                 input_data.satControl()[cycle]
+                 input_data.satControl()[j]
                 netsim.filling = True
                 if netsim.finalSat < netsim.satW:
                     # Drainage process
-                    (netsim.wettClass, netsim.minthetai, netsim.maxthetai,
-                     netsim.delta, netsim.eta, netsim.distModel, netsim.sepAng
-                     ) = input_data.initConAng('INIT_CONT_ANG')
                     netsim.is_oil_inj = True
                     netsim.maxPc = Pc
-                    netsim = TwoPhaseDrainage(netsim, writeData=writeData)
+                    if firstDrainCycle:
+                        (netsim.wettClass, netsim.minthetai, netsim.maxthetai,
+                         netsim.delta, netsim.eta, netsim.distModel, netsim.sepAng) =\
+                            input_data.initConAng('INIT_CONT_ANG')
+                        netsim = TwoPhaseDrainage(netsim, writeData=writeData,
+                                                  writeTrappedData=writeTrappedData)
+                        netsim.prop_drainage = {}
+                        netsim.prop_drainage['contactAng'] = netsim.contactAng.copy()
+                        netsim.prop_drainage['thetaRecAng'] = netsim.thetaRecAng.copy()
+                        netsim.prop_drainage['thetaAdvAng'] = netsim.thetaAdvAng.copy()
+                        firstDrainCycle = False
+                    else:
+                        netsim = SecDrainage(netsim, writeData=writeData,
+                                             writeTrappedData=writeTrappedData)
                     netsim.drainage()
                     
                     if drainPlot:
@@ -71,12 +85,21 @@ def main():
     
                 else:
                     # Imbibition process
-                    netsim.probable = True
-                    (netsim.wettClass, netsim.minthetai, netsim.maxthetai,
-                     netsim.delta, netsim.eta, netsim.distModel, netsim.sepAng
-                     ) = input_data.initConAng('EQUIL_CON_ANG')
                     netsim.minPc = Pc
-                    netsim = TwoPhaseImbibition(netsim, writeData=writeData)
+                    if firstImbCycle:
+                        (netsim.wettClass, netsim.minthetai, netsim.maxthetai,
+                         netsim.delta, netsim.eta, netsim.distModel, netsim.sepAng) =\
+                            input_data.initConAng('EQUIL_CON_ANG')
+                        netsim = TwoPhaseImbibition(netsim, writeData=writeData,
+                                                writeTrappedData=writeTrappedData)
+                        netsim.prop_imbibition = {}
+                        netsim.prop_imbibition['contactAng'] = netsim.contactAng.copy()
+                        netsim.prop_imbibition['thetaRecAng'] = netsim.thetaRecAng.copy()
+                        netsim.prop_imbibition['thetaAdvAng'] = netsim.thetaAdvAng.copy()
+                        firstImbCycle = False
+                    else:
+                        netsim = SecImbibition(netsim, writeData=writeData,
+                                                writeTrappedData=writeTrappedData)
                     netsim.imbibition()
                     if imbibePlot:
                         imbibition_results = {}
@@ -96,8 +119,7 @@ def main():
                                    compWithLitData, compWithPrevData, False, True, include=None)
                     mkI.pcSw()
                     mkI.krSw()
-                if probablePlot:
-                    mkP = makePlot(netsim._num, netsim.title, imbibition_results, True, True, False, True, include=None)
+                
 
                 #from IPython import embed; embed()
 

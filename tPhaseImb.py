@@ -12,11 +12,11 @@ from utilities import Computations
 from tPhaseD import TwoPhaseDrainage
 
 class TwoPhaseImbibition(TwoPhaseDrainage):
-    def __new__(cls, obj, writeData=False):
+    def __new__(cls, obj, writeData=False, writeTrappedData=False):
         obj.__class__ = TwoPhaseImbibition
         return obj
     
-    def __init__(self, obj, writeData=False):
+    def __init__(self, obj, writeData=False, writeTrappedData=False):
         if not hasattr(self, 'do'):     
             self.do = Computations(self)
 
@@ -83,23 +83,20 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
     
     def imbibition(self):
         start = time()
-        print('--------------------------------------------------------------')
-        print('-----------------------Two Phase Imbibition Process-----------')
+        print('----------------------------------------------------------------------------------')
+        print('---------------------------------Two Phase Imbibition Cycle {}---------------------'.format(self.cycle))
 
-        if self.writeData: self.__writeHeadersI__()
-        else:
-            self.resultI_str = ""
-            self.do.writeResult(self.resultI_str, self.capPresMax)
-
+        if self.writeData:
+            self.__fileName__()
+            self.__writeHeadersI__()
+        else: self.resultI_str = ""
+            
         self.SwTarget = min(self.finalSat, self.satW+self.dSw*0.5)
         self.PcTarget = max(self.minPc, self.capPresMin-(
             self.minDeltaPc+abs(self.capPresMin)*self.deltaPcFraction)*0.1)
-
         self.fillTarget = max(self.m_minNumFillings, int(
             self.m_initStepSize*(self.totElements)*(
                 self.satW-self.SwTarget)))
-        self.done = False
-        self.createFile = True
 
         while self.filling:
             self.__PImbibition__()
@@ -109,7 +106,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
                 self.filling = False
                 break
 
-            if (len(self.ElemToFill)==0) or not self.filling:
+            if (len(self.ElemToFill)==0):
                 self.filling = False
                 self.cnt, self.totNumFill = 0, 0
                 _pclist = np.array([-1e-7, self.minPc])
@@ -141,7 +138,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         self.is_oil_inj = True
         self.do.__finitCornerApex__(self.capPresMin)
         print('Time spent for the imbibition process: ', time() - start)
-        print('===========================================================')
+        print('===========================================================\n\n')
         #from IPython import embed; embed()
     
 
@@ -157,9 +154,20 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
                 while (self.invInsideBox < self.fillTarget) & (
                     len(self.ElemToFill) != 0) & (
                         self.PcI[self.ElemToFill[0]] >= self.PcTarget):
-                    
-                    self.popUpdateWaterInj()
-                        
+                    try:
+                        assert not self.fillTillNWDisconnected
+                        self.popUpdateWaterInj()
+                    except AssertionError:
+                        try:
+                            self.fluid[self.ElemToFill[0]] = 0
+                            assert self.isNWConnected()
+                            self.popUpdateWaterInj()
+                        except AssertionError:
+                            self.fluid[self.ElemToFill[0]] = 1
+                            self.filling = False
+                            self.PcTarget = self.capPresMin
+                            break
+
                 assert (self.PcI[self.ElemToFill[0]] < self.PcTarget) & (
                         self.capPresMin > self.PcTarget)
                 self.capPresMin = self.PcTarget
@@ -174,6 +182,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
 
             try:
                 assert self.PcI[self.ElemToFill[0]] >= self.PcTarget
+                assert self.filling
             except (AssertionError, IndexError):
                 break
 
@@ -212,6 +221,35 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
 
         except AssertionError:
             pass
+
+
+    def isNWConnected(self):
+        Notdone = (self.fluid==1)&(self.isinsideBox)&(~self.trappedNW)
+        conTToInlet = self.conTToInlet+self.nPores
+        conTToOutlet = self.conTToOutlet+self.nPores
+        try:
+            assert Notdone[conTToInlet].sum()>0
+            assert Notdone[conTToOutlet].sum()>0
+            conTToOutlet = conTToOutlet[Notdone[conTToOutlet]]
+        except AssertionError:
+            return False
+        
+        arrlist = SortedList(key=lambda i: self.distToExit[i])
+        arrlist.update(conTToInlet[Notdone[conTToInlet]])
+
+        while True:
+            try:
+                i = arrlist.pop(0)
+                Notdone[i] = False
+                arr = self.elem[i].neighbours
+                arr = arr[Notdone[arr]]
+                Notdone[arr] = False
+                assert (~Notdone[conTToOutlet]).sum()==0
+                arrlist.update(arr)
+            except AssertionError:
+                return True
+            except IndexError:
+                return False
 
 
     def __CondTPImbibition__(self):
@@ -689,10 +727,6 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
 
 
     def __writeHeadersI__(self):
-        result_dir = "./results_csv/"   
-        self.file_name = os.path.join(result_dir, "Flowmodel_"+
-                            self.title+"_Imbibition_"+str(self._num)+".csv")
-
         self.resultI_str="======================================================================\n"
         self.resultI_str+="# Fluid properties:\nsigma (mN/m)  \tmu_w (cP)  \tmu_nw (cP)\n"
         self.resultI_str+="# \t%.6g\t\t%.6g\t\t%.6g" % (
@@ -721,6 +755,25 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         self.resultI_str = self.do.writeResult(self.resultI_str, self.capPresMax)
 
 
+    def __fileName__(self):
+        result_dir = "./results_csv/"
+        os.makedirs(os.path.dirname(result_dir), exist_ok=True)
+        if not hasattr(self, '_num'):
+            self._num = 1
+            while True:         
+                file_name = os.path.join(
+                    result_dir, "Flowmodel_"+self.title+"_Imbibition_cycle"+str(self.cycle)+\
+                        "_"+str(self._num)+".csv")
+                if os.path.isfile(file_name): self._num += 1
+                else:
+                    break
+            self.file_name = file_name
+        else:
+            self.file_name = os.path.join(
+                result_dir, "Flowmodel_"+self.title+"_Imbibition_cycle"+str(self.cycle)+\
+                    "_"+str(self._num)+".csv")
+
+
     def renumCluster(self):
         numOld = np.unique(self.trapCluster_W)
         for ind, v in enumerate(numOld):
@@ -729,8 +782,8 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
 
     def __writeTrappedData__(self):
         filename = os.path.join(
-            "./results_csv/Flowmodel_{}_Imbibition_{}_trappedDist.csv".format(
-                self.title, self._num))
+            "./results_csv/Flowmodel_{}_Imbibition_cycle{}_{}_trappedDist.csv".format(
+                self.title, self.cycle, self._num))
         data = [*zip(self.Rarray, self.volarray, self.fluid, self.trappedW, self.trappedNW)]
         np.savetxt(filename, data, delimiter=',', header='rad, volume, fluid, trappedW, trappedNW')
         

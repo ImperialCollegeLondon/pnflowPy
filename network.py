@@ -68,7 +68,7 @@ class Network(InputData):
         self.nTriangles = self.elemTriangle.size
         self.nSquares = self.elemSquare.size
         self.nCircles = self.elemCircle.size
-        self.writeData()
+        self.__writeData__()
         print('time taken:   ', time()-st)
         del self.pore, self.throat, self.poreCon, self.throatCon
         
@@ -468,7 +468,7 @@ class Network(InputData):
         self.porosity = (volTotal+clayvolTotal)/self.totBoxVolume
         self.totVoidVolume = volTotal+clayvolTotal
 
-    def writeData(self):
+    def __writeData__(self):
         print('porosity = ', self.porosity)
         print('maximum pore connection = ', self.maxPoreCon)
         #from IPython import embed; embed()
