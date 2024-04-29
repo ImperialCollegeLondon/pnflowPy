@@ -307,14 +307,18 @@ class TwoPhaseDrainage(SinglePhase):
         warnings.simplefilter(action='ignore', category=FutureWarning)
         pd.options.mode.chained_assignment = None
 
-        arrr = (self.fluid == 1)
+        try:
+            arrr = (self.fluid==1)&(self.AreaSPhase!=0.0)
+            assert np.any(arrr)
+        except AssertionError:
+            return
+        
         arrrS = arrr[self.elemSquare]
         arrrT = arrr[self.elemTriangle]
         arrrC = arrr[self.elemCircle]
-        
-        # create films
+
         try:
-            assert (arrrT.sum() > 0)
+            assert np.any(arrrT)
             Pc = self.PcD[self.elemTriangle]
             curConAng = self.contactAng.copy()
             self.do.createFilms(self.elemTriangle, arrrT, self.halfAnglesTr, Pc,
@@ -333,16 +337,17 @@ class TwoPhaseDrainage(SinglePhase):
             cornA, cornG = self.do.calcAreaW(
                 arrrT, self.halfAnglesTr, conAngPT, self.cornExistsTr, apexDistPT)
             
-            condlist = (cornA < self._cornArea[self.elemTriangle[arrrT]])
-            self._cornArea[self.elemTriangle[arrrT][condlist]] = cornA[condlist]
+            arrrT = self.elemTriangle[arrrT]
+            condlist = (cornA < self._cornArea[arrrT])
+            self._cornArea[arrrT[condlist]] = cornA[condlist]
 
-            condlist = (cornG < self._cornCond[self.elemTriangle[arrrT]])
-            self._cornCond[self.elemTriangle[arrrT][condlist]] = cornG[condlist]
+            condlist = (cornG < self._cornCond[arrrT])
+            self._cornCond[arrrT[condlist]] = cornG[condlist]
         except AssertionError:
             pass
 
         try:
-            assert (arrrS.sum() > 0)
+            assert np.any(arrrS)
             Pc = self.PcD[self.elemSquare]
             curConAng = self.contactAng.copy()
             self.do.createFilms(self.elemSquare, arrrS, self.halfAnglesSq,
@@ -360,29 +365,25 @@ class TwoPhaseDrainage(SinglePhase):
             cornA, cornG = self.do.calcAreaW(
                 arrrS, self.halfAnglesSq, conAngPS, self.cornExistsSq, apexDistPS)
             
-            condlist = (cornA < self._cornArea[self.elemSquare[arrrS]])
-            self._cornArea[self.elemSquare[arrrS][condlist]] = cornA[condlist]
+            arrrS = self.elemSquare[arrrS]
+            condlist = (cornA < self._cornArea[arrrS])
+            self._cornArea[arrrS[condlist]] = cornA[condlist]
 
-            condlist = (cornG < self._cornCond[self.elemSquare[arrrS]])
-            self._cornCond[self.elemSquare[arrrS][condlist]] = cornG[condlist]
+            condlist = (cornG < self._cornCond[arrrS])
+            self._cornCond[arrrS[condlist]] = cornG[condlist]
         except AssertionError:
             pass
         try:
-            assert (arrrC.sum() > 0)
-            self._cornArea[self.elemCircle[arrrC]] = 0.0
-            self._cornCond[self.elemCircle[arrrC]] = 0.0
+            assert np.any(arrrC)
+            arrrC = self.elemCircle[arrrC]
+            self._cornArea[arrrC] = 0.0
+            self._cornCond[arrrC] = 0.0
         except  AssertionError:
             pass
         
-        cond = (self._cornArea > self.AreaSPhase) & arrr
-        self._cornArea[cond] = self.AreaSPhase[cond]
-        cond = (self._cornCond > self.gwSPhase) & arrr
-        self._cornCond[cond] = self.gwSPhase[cond]
-
         self._centerArea[arrr] = self.AreaSPhase[arrr] - self._cornArea[arrr]
-        self._centerCond[arrr] = np.where(self.AreaSPhase[arrr] != 0.0, self._centerArea[
-            arrr]/self.AreaSPhase[arrr]*self.gnwSPhase[arrr], 0.0)
-        
+        self._centerCond[arrr] = self._centerArea[arrr]/self.AreaSPhase[arrr]*self.gnwSPhase[arrr]
+
 
     def __fileName__(self):
         result_dir = "./results_csv/"

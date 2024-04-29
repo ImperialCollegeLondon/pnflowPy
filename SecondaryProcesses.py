@@ -1,15 +1,9 @@
 #import os
 import numpy as np
 from sortedcontainers import SortedList
-#import warnings
-#from itertools import chain
 
 from tPhaseD import TwoPhaseDrainage
 from tPhaseImb import TwoPhaseImbibition
-
-#import sys
-#sys.setrecursionlimit(2000)
-
 
 class SecDrainage(TwoPhaseDrainage):
     def __new__(cls, obj, writeData=False, writeTrappedData=True):
