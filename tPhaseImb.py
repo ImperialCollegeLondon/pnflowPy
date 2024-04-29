@@ -257,14 +257,14 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         warnings.simplefilter(action='ignore', category=FutureWarning)
         pd.options.mode.chained_assignment = None
 
-        arrr = np.ones(self.totElements, dtype='bool')
-        arrrS = arrr[self.elemSquare]
-        arrrT = arrr[self.elemTriangle]
-        arrrC = arrr[self.elemCircle]
-        Pc = np.ones(self.totElements)*self.capPresMin
+        #arrr = np.ones(self.totElements, dtype='bool')
+        arrrS = np.ones(self.elemSquare.size, dtype='bool')
+        arrrT = np.ones(self.elemTriangle.size, dtype='bool')
+        arrrC = np.ones(self.elemCircle.size, dtype='bool')
+        Pc = np.full(self.totElements, self.capPresMin)
 
         try:
-            assert (arrrS.sum() > 0)
+            assert arrrS.size>0
             curConAng = self.contactAng.copy()
             apexDist = np.empty_like(self.hingAngSq.T)
             conAngPS, apexDistPS = self.do.cornerApex(
@@ -275,13 +275,14 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             
             cornA, cornG = self.do.calcAreaW(
                 arrrS, self.halfAnglesSq, conAngPS, self.cornExistsSq, apexDistPS)
-            self._cornArea[self.elemSquare[arrrS]] = cornA
-            self._cornCond[self.elemSquare[arrrS]] = cornG
+            arrrS = self.elemSquare[arrrS]
+            self._cornArea[arrrS] = cornA
+            self._cornCond[arrrS] = cornG
         except AssertionError:
             pass
 
         try:
-            assert (arrrT.sum() > 0)
+            assert arrrT.size>0
             curConAng = self.contactAng.copy()
             apexDist = np.empty_like(self.hingAngTr.T)
             conAngPT, apexDistPT = self.do.cornerApex(
@@ -292,32 +293,31 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             
             cornA, cornG = self.do.calcAreaW(
                 arrrT, self.halfAnglesTr, conAngPT, self.cornExistsTr, apexDistPT)
-            self._cornArea[self.elemTriangle[arrrT]] = cornA
-            self._cornCond[self.elemTriangle[arrrT]] = cornG
+            arrrT = self.elemTriangle[arrrT]
+            self._cornArea[arrrT] = cornA
+            self._cornCond[arrrT] = cornG
         except AssertionError:
             pass
 
         try:
-            assert (arrrC.sum() > 0)
-            self._cornArea[self.elemCircle[arrrC]] = 0.0
-            self._cornCond[self.elemCircle[arrrC]] = 0.0
+            assert arrrC.size>0
+            arrrC = self.elemCircle[arrrC]
+            self._cornArea[arrrC] = 0.0
+            self._cornCond[arrrC] = 0.0
         except  AssertionError:
             pass
         
-        try:
-            assert (self._cornArea[arrr] <= self.AreaSPhase[arrr]).all()
-        except AssertionError:
-            cond = (self._cornArea[arrr] > self.AreaSPhase[arrr])
-            self._cornArea[arrr & cond] = self.AreaSPhase[arrr & cond]
-        try:
-            assert (self._cornCond[arrr] <= self.gwSPhase[arrr]).all()
-        except AssertionError:
-            cond = (self._cornCond[arrr] > self.gwSPhase[arrr])
-            self._cornCond[arrr & cond] = self.gwSPhase[arrr & cond]
         
-        self._centerArea[arrr] = self.AreaSPhase[arrr] - self._cornArea[arrr]
-        self._centerCond[arrr] = np.where(self.AreaSPhase[arrr] != 0.0, self._centerArea[
-                arrr]/self.AreaSPhase[arrr]*self.gnwSPhase[arrr], 0.0)
+        cond = (self._cornArea > self.AreaSPhase)
+        self._cornArea[cond] = self.AreaSPhase[cond]
+        try:
+            cond = (self._cornCond <= self.gwSPhase)
+            assert np.any(cond)
+        except AssertionError:
+            self._cornCond[cond] = self.gwSPhase[cond]
+        
+        self._centerArea = self.AreaSPhase - self._cornArea
+        self._centerCond = self._centerArea/self.AreaSPhase*self.gnwSPhase
         
         self.__updateAreaCond__()
         
@@ -327,7 +327,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
 
         try:
             cond2 = arrr & (self.fluid == 0)
-            assert cond2.sum() > 0
+            assert np.any(cond2)
             self._areaWP[cond2] = self.AreaSPhase[cond2]
             self._areaNWP[cond2] = 0.0
             self._condWP[cond2] = self.gwSPhase[cond2]
@@ -336,22 +336,18 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             pass
 
         try:
-            cond1 = arrr & (self.fluid == 1) & (self.Garray <= self.bndG2)
-            assert cond1.sum() > 0
-            self._areaWP[cond1] = np.maximum(np.minimum(
-                self._cornArea[cond1], self.AreaSPhase[cond1]), 0.0)
-            self._areaNWP[cond1] = np.maximum(np.minimum(
-                self._centerArea[cond1], self.AreaSPhase[cond1]), 0.0)
-            self._condWP[cond1] = np.maximum(np.minimum(
-                self._cornCond[cond1], self.gwSPhase[cond1]), 0.0)
-            self._condNWP[cond1] = np.maximum(np.minimum(
-                self._centerCond[cond1], self.gnwSPhase[cond1]), 0.0)
+            cond1 = arrr & (self.fluid==1) & (self.Garray<=self.bndG2)
+            assert np.any(cond1)
+            self._areaWP[cond1] = np.clip(self._cornArea[cond1], 0.0, self.AreaSPhase[cond1])
+            self._areaNWP[cond1] = np.clip(self._centerArea[cond1], 0.0, self.AreaSPhase[cond1])
+            self._condWP[cond1] = np.clip(self._cornCond[cond1], 0.0, self.gwSPhase[cond1])
+            self._condNWP[cond1] = np.clip(self._centerCond[cond1], 0.0, self.gnwSPhase[cond1])
         except AssertionError:
             pass
 
         try:
-            cond3 = arrr & (self.fluid == 1) & (self.Garray > self.bndG2)
-            assert cond3.sum() > 0
+            cond3 = arrr & (self.fluid==1) & (self.Garray>self.bndG2)
+            assert np.any(cond3)
             self._areaWP[cond3] = 0.0
             self._areaNWP[cond3] = self.AreaSPhase[cond3]
             self._condWP[cond3] = 0.0
@@ -364,10 +360,11 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         conda = (self.fluid == 0)
         condb = (self.fluid == 1) & (self.Garray < self.bndG2)  #polygons filled with w
         condc = (self.fluid == 1) & (self.Garray >= self.bndG2) #circles filled with nw
+        condac = (conda | condc)
 
-        self.PistonPcAdv[conda | condc] = 2.0*self.sigma*np.cos(
-             self.thetaAdvAng[conda | condc])/self.Rarray[conda | condc]
-        conda = conda & (self.maxPc < self.PistonPcRec)
+        self.PistonPcAdv[condac] = 2.0*self.sigma*np.cos(
+            self.thetaAdvAng[condac])/self.Rarray[condac]
+        conda = conda & (self.maxPc<self.PistonPcRec)
         self.PistonPcAdv[conda] = self.maxPc*np.cos(self.thetaAdvAng[conda])/np.cos(
             self.thetaRecAng[conda])
         
@@ -379,10 +376,10 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             self.elemSquare, np.newaxis] + self.halfAnglesSq).sum(axis=1)
         rhsMaxAdvConAng = (-4.0*self.Garray*angSum)/(
             normThresPress-np.cos(self.thetaRecAng)+12.0*self.Garray*np.sin(self.thetaRecAng))
-        rhsMaxAdvConAng = np.minimum(1.0, np.maximum(rhsMaxAdvConAng, -1.0))
+        rhsMaxAdvConAng = np.clip(rhsMaxAdvConAng, -1.0, 1.0)
         m_maxConAngSpont = np.arccos(rhsMaxAdvConAng)
 
-        condd = condb & (self.thetaAdvAng < m_maxConAngSpont) #calculte PHing
+        condd = condb & (self.thetaAdvAng<m_maxConAngSpont) #calculte PHing
         self.__PistonPcHing__(condd)
 
         conde = np.zeros(self.totElements, dtype='bool')
@@ -404,7 +401,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         arrrT = arrr[self.elemTriangle]
         
         try:
-            assert arrrT.sum() > 0
+            assert np.any(arrrT)
             self.PistonPcAdv[self.elemTriangle[arrrT]] = self.Pc_pistonHing(
                 self.elemTriangle, arrrT, self.halfAnglesTr.T, self.cornExistsTr,
                 self.initOrMaxPcHistTr, self.initOrMinApexDistHistTr, self.advPcTr,
@@ -412,7 +409,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         except AssertionError:
             pass
         try:
-            assert arrrS.sum() > 0
+            assert np.any(arrrS)
             self.PistonPcAdv[self.elemSquare[arrrS]] = self.Pc_pistonHing(
                 self.elemSquare, arrrS, self.halfAnglesSq, self.cornExistsSq,
                 self.initOrMaxPcHistSq, self.initOrMinApexDistHistSq, self.advPcSq,
@@ -551,7 +548,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             pass
 
         try:
-            assert arrrSq.sum() > 0
+            assert np.any(arrrSq)
             cond = arrrSq & (~self.trappedNW[self.elemSquare]) & (self.thetaAdvAng[
                 self.elemSquare] < (np.pi/2.0 - self.halfAnglesSq[0]))
             arr = self.elemSquare[cond]
@@ -686,7 +683,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         except TypeError:
             pass
 
-        if any(arr1==5):
+        if np.any(arr1==5):
             print('greater than 5', Pc)
         
         return Pc

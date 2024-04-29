@@ -68,6 +68,7 @@ class Computations():
                         conn[arr] = True
                         try:
                             arrr[self.PTConnections[arr]] = True
+                            #arrr[np.array([*chain(*self.PTConData[arr])])+self.nPores] = True
                         except TypeError:
                             arrr[self.PTConData[arr]+self.nPores]=True
                         except IndexError:
@@ -91,7 +92,7 @@ class Computations():
                 break
     
         return connected
-
+                
 
     def isTrapped(self, i, fluid, Pc, args=None):
         try:
@@ -153,60 +154,46 @@ class Computations():
                         arr&(trapClust==trapClust[arr].max())][0]
                     trapClust[arr] = trapClust[arr].max()
                 return True
+            
 
-    
     def __getValue__(self, arrr, gL):
         row, col, data = [], [], []
         indP = self.poreListS[arrr[self.poreListS]]
         c = indP.size
         Cmatrix = np.zeros(c)
-        mList = dict(zip(indP, np.arange(c)))
+        mList = -np.ones(self.nPores+2, dtype='int')
+        mList[indP] = np.arange(c)
 
         # throats within the calcBox
         cond1 = arrr[self.tList] & self.isinsideBox[self.P1array] & self.isinsideBox[self.P2array]
-        indT1 = zip(self.throatList[cond1], self.P1array[cond1], self.P2array[cond1])
+        t_1, P1_1, P2_1 = self.throatList[cond1], mList[self.P1array[cond1]], mList[
+            self.P2array[cond1]]
+        cond_1 = gL[t_1-1]
 
         # throats connected to the inletBdr
-        condP1 = (arrr[self.tList])&(self.isOnInletBdr[self.P1array])
-        condP2 = (arrr[self.tList])&(self.isOnInletBdr[self.P2array])
-        indP2 = self.P2array*condP1 + self.P1array*condP2
-        cond2 = (condP1 | condP2)
-        indT2 = zip(self.throatList[cond2], indP2[cond2])
+        cond2 = (arrr[self.tList])&(self.isOnInletBdr[self.P1array]|self.isOnInletBdr[self.P2array])
+        #from IPython import embed; embed()
+        indP2 = np.where(self.isOnInletBdr[self.P1array[cond2]], self.P2array[cond2], 
+                         self.P1array[cond2])
+        t_2, P_2 = self.throatList[cond2], mList[indP2]
+        cond_2 = gL[t_2-1]
 
         # throats connectec to the outletBdr
-        condP1 = (arrr[self.tList])&(self.isOnOutletBdr[self.P1array])
-        condP2 = (arrr[self.tList])&(self.isOnOutletBdr[self.P2array])
-        indP3 = self.P2array*condP1 + self.P1array*condP2
-        cond3 = (condP1 | condP2)
-        indT3 = zip(self.throatList[cond3], indP3[cond3])
+        cond3 = (arrr[self.tList])&(self.isOnOutletBdr[self.P1array]|self.isOnOutletBdr[
+            self.P2array])
+        indP3 = np.where(self.isOnOutletBdr[self.P1array[cond3]], self.P2array[cond3],
+                         self.P1array[cond3])
+        t_3, P_3 = self.throatList[cond3], mList[indP3]
+        cond_3 = gL[t_3-1]
 
-        def worker1(t, P1, P2):
-            #print(t, P1, P2)
-            cond = gL[t-1]
-            P1, P2 = mList[P1], mList[P2]
-            row.extend((P1, P2, P1, P2))
-            col.extend((P2, P1, P1, P2))
-            data.extend((-cond, -cond, cond, cond))
+        #if c>50000:
+         #   from IPython import embed; embed()
 
-        def worker2(t:int, P:int):
-            cond = gL[t-1]
-            P = mList[P]
-            row.append(P)
-            col.append(P)
-            data.append(cond)
-            Cmatrix[P] += cond
-
-        def worker3(t:int, P:int):
-            cond = gL[t-1]
-            P = mList[P]
-            row.append(P)
-            col.append(P)
-            data.append(cond)
-
-        for arr in indT1: worker1(*arr)
-        for arr in indT2: worker2(*arr)
-        for arr in indT3: worker3(*arr)
-        
+        row = np.concatenate((P1_1, P2_1, P1_1, P2_1, P_2, P_3))
+        col = np.concatenate((P2_1, P1_1, P1_1, P2_1, P_2, P_3))
+        data = np.concatenate((-cond_1, -cond_1, cond_1, cond_1, cond_2, cond_3))
+        np.add.at(Cmatrix, P_2, cond_2)
+    
         Amatrix = csr_matrix((data, (row, col)), shape=(c, c), dtype=float)
         
         return Amatrix, Cmatrix
@@ -227,6 +214,7 @@ class Computations():
         arrr = (arrr & self.connected & self.isinsideBox)
 
         self.conn = self.isConnected(arrr)
+        #from IPython import embed; embed()
         Amatrix, Cmatrix = self.__getValue__(self.conn, gL)
 
         pres = np.zeros(self.nPores+2)
@@ -246,7 +234,7 @@ class Computations():
             pass
 
         return qout
-    
+
     
     def computePerm(self):
         gwL = self.computegL(self.gWPhase)
@@ -319,9 +307,15 @@ class Computations():
         contactAng[self.tList[condc & (randNum <= 0.5)]] = contactAng[
             self.P2array[condc & (randNum <= 0.5)]]
         
-        print(np.array([contactAng.mean(), contactAng.std(), 
-                        contactAng.min(), contactAng.max()])*180/np.pi)
-    
+        #contactAng[self.poreList[self.fluid[self.poreList]==0]] = 0
+        #contactAng[self.tList[self.fluid[self.tList]==0]] = 0
+        #if not self.is_oil_inj:
+            #from IPython import embed; embed() 
+         #   randNum = self.rand((self.PcD > self.maxPc).sum())
+          #  contactAng[self.fluid==0] = 40/180*np.pi   #*randNum         # Uniform Distribution'''
+        
+        print(np.array([contactAng.mean(), contactAng.std(), contactAng.min(), contactAng.max()])*180/np.pi)
+        #from IPython import embed; embed()
         thetaRecAng, thetaAdvAng = self.setContactAngles(contactAng)
 
         return contactAng, thetaRecAng, thetaAdvAng
@@ -442,14 +436,13 @@ class Computations():
             cond = (~self.trappedW[arr]) & self.trappedNW[arr] & arrr
             trappedPc[cond] = self.trappedNW_Pc[arr[cond]]
             cond = (self.trappedW[arr]|self.trappedNW[arr])
-            
-            part = np.maximum(-0.999999, np.minimum(
-                0.999999, (trappedPc*initedApexDist*np.sin(
-                    halfAng)).T[cond]/self.sigma))
+        
+            part = np.clip((trappedPc*initedApexDist*np.sin(halfAng)).T[cond]/self.sigma, 
+                           -0.999999, 0.999999)
             try:
-                conAng.T[cond] = np.minimum(np.maximum(np.arccos(part)-halfAng.T[cond], 0.0), np.pi)
+                conAng.T[cond] = np.clip(np.arccos(part)-halfAng.T[cond], 0.0, np.pi)
             except IndexError:
-                conAng.T[cond] = np.minimum(np.maximum(np.arccos(part)-halfAng.T, 0.0), np.pi)
+                conAng.T[cond] = np.clip(np.arccos(part)-halfAng.T, 0.0, np.pi)
             
         except AssertionError:
             pass
@@ -460,14 +453,10 @@ class Computations():
         cond1 = cond1a & arrr
         try:
             assert cond1.sum() > 0
-            #if not self.is_oil_inj and 10761 in arr: print('  cond1  ')
-            part = np.minimum(0.999999, np.maximum(
-                Pc*initedApexDist*np.sin(halfAng)/self.sigma,
-                -0.999999))
-            hingAng = np.minimum(np.maximum(
-                (np.arccos(part)-halfAng)[cond1], -self._delta),
-                np.pi+self._delta)
-            conAng[cond1] = np.minimum(np.maximum(hingAng, 0.0), np.pi)
+            
+            part = np.clip(Pc*initedApexDist*np.sin(halfAng)/self.sigma, -0.999999, 0.999999)
+            hingAng = np.clip((np.arccos(part)-halfAng)[cond1], -self._delta, np.pi+self._delta)
+            conAng[cond1] = np.clip(hingAng, 0.0, np.pi)
             apexDist[cond1] = initedApexDist[cond1]
         except AssertionError:
             pass
@@ -478,7 +467,6 @@ class Computations():
         cond2 = cond2a & arrr
         try:
             assert cond2.sum() > 0
-            #if not self.is_oil_inj and 10761 in arr: print('  cond2  ')
             conAng[cond2] = (self.thetaAdvAng[arr]*cond2)[cond2]
             apexDist[cond2] = (self.sigma/Pc*np.cos(
                 conAng+halfAng)/np.sin(halfAng))[cond2]
@@ -486,10 +474,8 @@ class Computations():
             cond2b = (apexDist < initedApexDist) & cond2
             assert cond2b.sum() > 0
             #print('  cond2b  ')
-            part = Pc*initedApexDist*np.sin(halfAng)/self.sigma
-            part = np.minimum(0.999999, np.maximum(part, -0.999999))
-            hingAng = np.minimum(np.maximum(
-                (np.arccos(part)-halfAng)[cond2b], 0.0), np.pi)
+            part = np.clip(Pc*initedApexDist*np.sin(halfAng)/self.sigma, -0.999999, 0.999999)
+            hingAng = np.clip((np.arccos(part)-halfAng)[cond2b], 0.0, np.pi)
             
             conAng[cond2b] = hingAng
             apexDist[cond2b] = initedApexDist[cond2b]
@@ -524,10 +510,8 @@ class Computations():
             try:
                 assert cond4b.sum() > 0
                 #print('cond4b')
-                part = (Pc*initedApexDist*np.sin(halfAng)/self.sigma)
-                part = np.maximum(np.minimum(part, 0.999999), -0.999999)
-                hingAng = np.minimum(np.maximum((
-                    np.arccos(part)-halfAng)[cond4b], 0.0), np.pi)
+                part = np.clip(Pc*initedApexDist*np.sin(halfAng)/self.sigma, -0.999999, 0.999999)
+                hingAng = np.clip((np.arccos(part)-halfAng)[cond4b], 0.0, np.pi)
                 conAng[cond4b] = hingAng
                 apexDist[cond4b] = initedApexDist[cond4b]
             except AssertionError:
@@ -535,10 +519,9 @@ class Computations():
             try:
                 assert cond4c.sum() > 0
                 #print('cond4c')
-                part = (Pc*m_initOrMinApexDistHist*np.sin(halfAng)/self.sigma)
-                part = np.maximum(np.minimum(part, 0.999999), -0.999999)
-                hingAng = np.minimum(np.maximum((
-                    np.arccos(part)-halfAng)[cond4c], 0.0), np.pi)
+                part = np.clip(Pc*m_initOrMinApexDistHist*np.sin(halfAng)/self.sigma, 
+                               -0.999999, 0.999999)
+                hingAng = np.clip((np.arccos(part)-halfAng)[cond4c], 0.0, np.pi)
                 conAng[cond4c] = hingAng
                 apexDist[cond4c] = m_initOrMinApexDistHist[cond4c]
             except AssertionError:
