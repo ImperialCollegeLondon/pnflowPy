@@ -102,6 +102,7 @@ class Computations():
         except AssertionError:
             (trapped, trappedPc, trapClust) = args
         
+        
         try:
             assert trapped[i]
             return True
@@ -126,12 +127,14 @@ class Computations():
                 arrlist.extend(pt[canAdd[pt]])
                 canAdd[pt] = False
             except AssertionError:
+                
                 Notdone[arrlist] = False
                 try:
                     arrlist = np.array(arrlist)[trapped[arrlist]]
                     arrl = []
                     [arrl.extend(self.elementLists[
                         (trapClust==k)[1:-1]]) for k in set(trapClust[arrlist])]
+                    
                     Notdone[arrl] = False
                 except (IndexError, AssertionError):
                     pass
@@ -431,7 +434,6 @@ class Computations():
             assert not overidetrapping
             apexDist[:, arrr] = initedApexDist[:, arrr]
             assert self.trappedW[arr[arrr]].sum()+self.trappedNW[arr[arrr]].sum()>0
-
             trappedPc = self.trappedW_Pc[arr]
             cond = (~self.trappedW[arr]) & self.trappedNW[arr] & arrr
             trappedPc[cond] = self.trappedNW_Pc[arr[cond]]

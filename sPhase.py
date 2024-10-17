@@ -42,6 +42,7 @@ class SinglePhase(Network):
         arrr = (arrr & self.connected & self.isinsideBox)
     
         conn = compute.isConnected(arrr)
+        
         AmatrixW, CmatrixW = compute.__getValue__(conn, gLSP)
         presSP = np.zeros(self.nPores+2)
         presSP[conn[self.poreListS]] = compute.matrixSolver(

@@ -89,7 +89,10 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         if self.writeData:
             self.__fileName__()
             self.__writeHeadersI__()
-        else: self.resultI_str = ""
+        else: 
+            self.resultI_str = ""
+            self.totNumFill = 0
+            self.resultI_str = self.do.writeResult(self.resultI_str, self.capPresMax)
             
         self.SwTarget = min(self.finalSat, self.satW+self.dSw*0.5)
         self.PcTarget = max(self.minPc, self.capPresMin-(
@@ -97,6 +100,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         self.fillTarget = max(self.m_minNumFillings, int(
             self.m_initStepSize*(self.totElements)*(
                 self.satW-self.SwTarget)))
+        
 
         while self.filling:
             self.__PImbibition__()
@@ -161,6 +165,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
                         try:
                             self.fluid[self.ElemToFill[0]] = 0
                             assert self.isNWConnected()
+                            self.fluid[self.ElemToFill[0]] = 1
                             self.popUpdateWaterInj()
                         except AssertionError:
                             self.fluid[self.ElemToFill[0]] = 1
@@ -194,7 +199,6 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             self.PcTarget = self.capPresMin
         except IndexError:
             pass
-
         self.__CondTPImbibition__()
         self.satW = self.do.Saturation(self.AreaWPhase, self.AreaSPhase)
         self.do.computePerm()
@@ -205,7 +209,6 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         k = self.ElemToFill.pop(0)
         capPres = self.PcI[k]
         self.capPresMin = np.min([self.capPresMin, capPres])
-
         try:
             assert not self.do.isTrapped(k, 1, self.capPresMin)
             self.fluid[k] = 0
@@ -218,10 +221,8 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             arr = arr[(self.fluid[arr] == 1)&(~self.trappedNW[arr])&(arr>0)]
             [*map(lambda i: self.do.isTrapped(i, 1, self.capPresMin), arr)]
             self.__computePc__(self.capPresMin, arr)
-
         except AssertionError:
             pass
-
 
     def isNWConnected(self):
         Notdone = (self.fluid==1)&(self.isinsideBox)&(~self.trappedNW)
@@ -633,6 +634,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         # Snap-off filling
         self.__computeSnapoffPc1__(Pc)
         #self.__computeSnapoffPc__()
+
         conda = (maxNeiPistonPrs > 0.0) & (entryPc > self.snapoffPc)
         entryPc[~conda&(self.Garray<self.bndG2)] = self.snapoffPc[~conda&(self.Garray<self.bndG2)]
         try:

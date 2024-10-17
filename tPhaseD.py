@@ -37,7 +37,7 @@ class TwoPhaseDrainage(SinglePhase):
             self.do.__wettabilityDistribution__()
         self.Fd_Tr = self.do.__computeFd__(self.elemTriangle, self.halfAnglesTr)
         self.Fd_Sq = self.do.__computeFd__(self.elemSquare, self.halfAnglesSq)
-
+    
         self.cornExistsTr = np.zeros([self.nTriangles, 3], dtype='bool')
         self.cornExistsSq = np.zeros([self.nSquares, 4], dtype='bool')
         self.initedTr = np.zeros([self.nTriangles, 3], dtype='bool')
@@ -54,7 +54,7 @@ class TwoPhaseDrainage(SinglePhase):
         self.recPcSq = np.zeros([self.nSquares, 4])
         self.hingAngTr = np.zeros([self.nTriangles, 3])
         self.hingAngSq = np.zeros([self.nSquares, 4])
-    
+   
         self.do.__initCornerApex__()
         self.__computePistonPc__()
         self.PcD = self.PistonPcRec.copy()
@@ -81,8 +81,8 @@ class TwoPhaseDrainage(SinglePhase):
         self.writeData = writeData
         self.writeTrappedData = writeTrappedData
 
-        self.qW, self.qNW = 0.0, 0.0
-        self.krw, self.krnw = 0.0, 0.0
+        self.qW, self.qNW = self.qwSPhase, 0.0
+        self.krw, self.krnw = 1.0, 0.0
         self.totNumFill = 0
        
 
@@ -113,7 +113,8 @@ class TwoPhaseDrainage(SinglePhase):
         if self.writeData:
             self.__fileName__()
             self.__writeHeadersD__()
-        else: self.resultD_str = ""
+        else: 
+            self.resultD_str = ""
 
         self.SwTarget = max(self.finalSat, self.satW-self.dSw*0.5)
         self.PcTarget = min(self.maxPc, self.capPresMax+(
