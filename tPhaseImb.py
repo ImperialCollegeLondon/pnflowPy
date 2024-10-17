@@ -5,7 +5,6 @@ from time import time
 import numpy_indexed as npi
 import numpy as np
 import pandas as pd
-import math
 from sortedcontainers import SortedList
 
 from utilities import Computations
@@ -19,10 +18,10 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
     def __init__(self, obj, writeData=False, writeTrappedData=False):
         if not hasattr(self, 'do'):     
             self.do = Computations(self)
-
+        
         self.trapped = self.trappedNW
-        self.trappedPc = self.trappedNW_Pc
-        self.trapClust = self.trapCluster_NW
+        self.trappedData = self.clusterNW
+        self.trapClust = self.clusterNW_ID
     
         self.porebodyPc = np.zeros(self.totElements)
         self.snapoffPc = np.zeros(self.totElements)
@@ -33,14 +32,21 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
 
         self.ElemToFill = SortedList(key=lambda i: self.LookupList(i))
         self.capPresMin = self.maxPc
+        
         self.contactAng, self.thetaRecAng, self.thetaAdvAng =\
             self.do.__wettabilityDistribution__()
+        self.cosThetaAdvAng = np.cos(self.thetaAdvAng)
+        self.sinThetaAdvAng = np.sin(self.thetaAdvAng)
+        self.cosThetaRecAng = np.cos(self.thetaRecAng)
+        self.sinThetaRecAng = np.sin(self.thetaRecAng)
+        
         self.is_oil_inj = False
         self.do.__initCornerApex__()
         self.__computePistonPc__()
         self.randNum = self.rand(self.totElements)
+        self.__computeSnapoffPc__()
         self.__computePc__(self.maxPc, self.elementLists, False)
-
+               
         self._areaWP = self._cornArea.copy()
         self._areaNWP = self._centerArea.copy()
         self._condWP = self._cornCond.copy()
@@ -49,11 +55,15 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         self.writeTrappedData = True
 
     @property
-    def AreaWPhase(self):
+    def trappedPc(self):
+        return self.trappedNW_Pc
+
+    @property
+    def areaWPhase(self):
         return self._areaWP
     
     @property
-    def AreaNWPhase(self):
+    def areaNWPhase(self):
         return self._areaNWP
     
     @property
@@ -80,7 +90,6 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
     def centerCond(self):
         return self._centerCond
 
-    
     def imbibition(self):
         start = time()
         print('----------------------------------------------------------------------------------')
@@ -89,7 +98,10 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         if self.writeData:
             self.__fileName__()
             self.__writeHeadersI__()
-        else: self.resultI_str = ""
+        else: 
+            self.resultI_str = ""
+            self.totNumFill = 0
+            self.resultI_str = self.do.writeResult(self.resultI_str, self.capPresMax)
             
         self.SwTarget = min(self.finalSat, self.satW+self.dSw*0.5)
         self.PcTarget = max(self.minPc, self.capPresMin-(
@@ -100,7 +112,6 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
 
         while self.filling:
             self.__PImbibition__()
-
             if (self.PcTarget < self.minPc+0.001) or (
                  self.satW > self.finalSat-0.00001):
                 self.filling = False
@@ -114,8 +125,8 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
                 for Pc in _pclist:
                     self.capPresMin = Pc
                     self.__CondTPImbibition__()
-                    self.satW = self.do.Saturation(self.AreaWPhase, self.AreaSPhase)
-                    self.do.computePerm()
+                    self.satW = self.do.Saturation(self.areaWPhase, self.areaSPhase)
+                    self.do.computePerm(self.capPresMin)
                     self.resultI_str = self.do.writeResult(self.resultI_str, self.capPresMin)
                     
                 break
@@ -125,16 +136,18 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
                     self.PcTarget)*self.deltaPcFraction+1e-16))
             self.SwTarget = min(self.finalSat+1e-15, round((
                 self.satW+self.dSw*0.75)/self.dSw)*self.dSw)
-
+           
         if self.writeData:
             with open(self.file_name, 'a') as fQ:
                 fQ.write(self.resultI_str)
             if self.writeTrappedData:
                 self.__writeTrappedData__()
 
-        self.renumCluster()
         print("Number of trapped elements: W: {}  NW:{}".format(
             self.trappedW.sum(), self.trappedNW.sum()))
+        print('No of W clusters: {}, No of NW clusters: {}'.format(
+            np.count_nonzero(self.clusterW.size),
+            np.count_nonzero(self.clusterNW.size)))
         self.is_oil_inj = True
         self.do.__finitCornerApex__(self.capPresMin)
         print('Time spent for the imbibition process: ', time() - start)
@@ -144,7 +157,6 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
 
     def __PImbibition__(self):
         self.totNumFill = 0
-
         while (self.PcTarget-1.0e-32 < self.capPresMin) & (
                 self.satW <= self.SwTarget):
             self.oldSatW = self.satW
@@ -159,11 +171,10 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
                         self.popUpdateWaterInj()
                     except AssertionError:
                         try:
-                            self.fluid[self.ElemToFill[0]] = 0
-                            assert self.isNWConnected()
+                            assert (self.clusterNW.members[0][self.conTToIn].any() and 
+                                    self.clusterNW.members[0][self.conTToOutletBdr].any())
                             self.popUpdateWaterInj()
                         except AssertionError:
-                            self.fluid[self.ElemToFill[0]] = 1
                             self.filling = False
                             self.PcTarget = self.capPresMin
                             break
@@ -177,15 +188,13 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
                 pass
 
             self.__CondTPImbibition__()
-            self.satW = self.do.Saturation(self.AreaWPhase, self.AreaSPhase)
+            self.satW = self.do.Saturation(self.areaWPhase, self.areaSPhase)
             self.totNumFill += self.cnt
-
             try:
                 assert self.PcI[self.ElemToFill[0]] >= self.PcTarget
                 assert self.filling
             except (AssertionError, IndexError):
                 break
-
         try:
             assert (self.PcI[self.ElemToFill[0]] < self.PcTarget) & (
                 self.capPresMin > self.PcTarget)
@@ -196,75 +205,67 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             pass
 
         self.__CondTPImbibition__()
-        self.satW = self.do.Saturation(self.AreaWPhase, self.AreaSPhase)
-        self.do.computePerm()
+        self.satW = self.do.Saturation(self.areaWPhase, self.areaSPhase)
+        self.do.computePerm(self.capPresMin)
         self.resultI_str = self.do.writeResult(self.resultI_str, self.capPresMin)
 
-        
+
     def popUpdateWaterInj(self):
         k = self.ElemToFill.pop(0)
         capPres = self.PcI[k]
         self.capPresMin = np.min([self.capPresMin, capPres])
 
         try:
-            assert not self.do.isTrapped(k, 1, self.capPresMin)
+            assert not self.trappedNW[k]
             self.fluid[k] = 0
+            self.hasNWFluid[k] = False
+            kk = self.clusterNW_ID[k]
+            self.clusterNW_ID[k] = -5
+            self.clusterNW.members[kk,k] = False
+           
+            try:
+                assert self.hasWFluid[k]
+            except AssertionError:
+                self.hasWFluid[k] = True
+                self.clusterW_ID[k] = 0
+                self.clusterW.members[0,k] = True
+            
+            neigh = self.elem[k].neighbours[self.elem[k].neighbours>0]
+            neighW = neigh[self.hasWFluid[neigh]]
+            ids = self.clusterW_ID[neighW]
+            try:
+                idmin = ids.min()
+                ids = ids[ids!=idmin]
+                assert ids.size>0
+                mem = self.elementListS[self.clusterW.members[ids].any(axis=0)]
+                self.clusterW.members[idmin][mem] = True
+                self.clusterW.members[ids] = False
+                self.clusterW_ID[mem] = idmin
+            except (AssertionError, ValueError):
+                pass
+
             self.fillmech[k] = 1*(self.PistonPcAdv[k]==capPres)+2*(
                 self.porebodyPc[k]==capPres)+3*(self.snapoffPc[k]==capPres)
             self.cnt += 1
             self.invInsideBox += self.isinsideBox[k]
-
-            arr = self.elem[k].neighbours
-            arr = arr[(self.fluid[arr] == 1)&(~self.trappedNW[arr])&(arr>0)]
-            [*map(lambda i: self.do.isTrapped(i, 1, self.capPresMin), arr)]
-            self.__computePc__(self.capPresMin, arr)
-
+            neighb = neigh[self.hasNWFluid[neigh]]
+            self.do.check_Trapping_Clustering(
+                neighb, self.hasNWFluid.copy(), 1, self.capPresMin, True)
+            self.__computePc__(self.capPresMin, neighb)
         except AssertionError:
-            pass
-
-
-    def isNWConnected(self):
-        Notdone = (self.fluid==1)&(self.isinsideBox)&(~self.trappedNW)
-        conTToInlet = self.conTToInlet+self.nPores
-        conTToOutlet = self.conTToOutlet+self.nPores
-        try:
-            assert Notdone[conTToInlet].sum()>0
-            assert Notdone[conTToOutlet].sum()>0
-            conTToOutlet = conTToOutlet[Notdone[conTToOutlet]]
-        except AssertionError:
-            return False
-        
-        arrlist = SortedList(key=lambda i: self.distToExit[i])
-        arrlist.update(conTToInlet[Notdone[conTToInlet]])
-
-        while True:
-            try:
-                i = arrlist.pop(0)
-                Notdone[i] = False
-                arr = self.elem[i].neighbours
-                arr = arr[Notdone[arr]]
-                Notdone[arr] = False
-                assert (~Notdone[conTToOutlet]).sum()==0
-                arrlist.update(arr)
-            except AssertionError:
-                return True
-            except IndexError:
-                return False
-
+            pass    
 
     def __CondTPImbibition__(self):
         # to suppress the FutureWarning and SettingWithCopyWarning respectively
         warnings.simplefilter(action='ignore', category=FutureWarning)
         pd.options.mode.chained_assignment = None
 
-        #arrr = np.ones(self.totElements, dtype='bool')
         arrrS = np.ones(self.elemSquare.size, dtype='bool')
         arrrT = np.ones(self.elemTriangle.size, dtype='bool')
         arrrC = np.ones(self.elemCircle.size, dtype='bool')
         Pc = np.full(self.totElements, self.capPresMin)
 
         try:
-            assert arrrS.size>0
             curConAng = self.contactAng.copy()
             apexDist = np.empty_like(self.hingAngSq.T)
             conAngPS, apexDistPS = self.do.cornerApex(
@@ -275,14 +276,17 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             
             cornA, cornG = self.do.calcAreaW(
                 arrrS, self.halfAnglesSq, conAngPS, self.cornExistsSq, apexDistPS)
-            arrrS = self.elemSquare[arrrS]
-            self._cornArea[arrrS] = cornA
-            self._cornCond[arrrS] = cornG
+            condition = (cornA>self.areaSPhase[self.elemSquare])
+            self._cornArea[self.elemSquare] = np.where(
+                condition, self._cornArea[self.elemSquare], cornA)
+            self._cornCond[self.elemSquare] = np.where(
+                condition, self._cornCond[self.elemSquare], cornG)
+            self._cornArea[self.elemSquare] = cornA
+            self._cornCond[self.elemSquare] = cornG
         except AssertionError:
             pass
 
         try:
-            assert arrrT.size>0
             curConAng = self.contactAng.copy()
             apexDist = np.empty_like(self.hingAngTr.T)
             conAngPT, apexDistPT = self.do.cornerApex(
@@ -293,9 +297,11 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             
             cornA, cornG = self.do.calcAreaW(
                 arrrT, self.halfAnglesTr, conAngPT, self.cornExistsTr, apexDistPT)
-            arrrT = self.elemTriangle[arrrT]
-            self._cornArea[arrrT] = cornA
-            self._cornCond[arrrT] = cornG
+            condition = (cornA>self.areaSPhase[self.elemTriangle])
+            self._cornArea[self.elemTriangle] = np.where(
+                condition, self._cornArea[self.elemTriangle], cornA)
+            self._cornCond[self.elemTriangle] = np.where(
+                condition, self._cornCond[self.elemTriangle], cornG)
         except AssertionError:
             pass
 
@@ -307,17 +313,18 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         except  AssertionError:
             pass
         
-        
-        cond = (self._cornArea > self.AreaSPhase)
-        self._cornArea[cond] = self.AreaSPhase[cond]
+        cond = (self._cornArea > self.areaSPhase)
+        self._cornArea[cond] = self.areaSPhase[cond]
         try:
             cond = (self._cornCond <= self.gwSPhase)
             assert np.any(cond)
         except AssertionError:
             self._cornCond[cond] = self.gwSPhase[cond]
         
-        self._centerArea = self.AreaSPhase - self._cornArea
-        self._centerCond = self._centerArea/self.AreaSPhase*self.gnwSPhase
+        self._centerArea = self.areaSPhase - self._cornArea
+        self._centerCond = np.where(self.areaSPhase != 0.0, 
+                                    self._centerArea/self.areaSPhase*self.gnwSPhase,
+                                    0.0)
         
         self.__updateAreaCond__()
         
@@ -328,7 +335,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         try:
             cond2 = arrr & (self.fluid == 0)
             assert np.any(cond2)
-            self._areaWP[cond2] = self.AreaSPhase[cond2]
+            self._areaWP[cond2] = self.areaSPhase[cond2]
             self._areaNWP[cond2] = 0.0
             self._condWP[cond2] = self.gwSPhase[cond2]
             self._condNWP[cond2] = 0.0
@@ -338,8 +345,8 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         try:
             cond1 = arrr & (self.fluid==1) & (self.Garray<=self.bndG2)
             assert np.any(cond1)
-            self._areaWP[cond1] = np.clip(self._cornArea[cond1], 0.0, self.AreaSPhase[cond1])
-            self._areaNWP[cond1] = np.clip(self._centerArea[cond1], 0.0, self.AreaSPhase[cond1])
+            self._areaWP[cond1] = np.clip(self._cornArea[cond1], 0.0, self.areaSPhase[cond1])
+            self._areaNWP[cond1] = np.clip(self._centerArea[cond1], 0.0, self.areaSPhase[cond1])
             self._condWP[cond1] = np.clip(self._cornCond[cond1], 0.0, self.gwSPhase[cond1])
             self._condNWP[cond1] = np.clip(self._centerCond[cond1], 0.0, self.gnwSPhase[cond1])
         except AssertionError:
@@ -349,7 +356,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             cond3 = arrr & (self.fluid==1) & (self.Garray>self.bndG2)
             assert np.any(cond3)
             self._areaWP[cond3] = 0.0
-            self._areaNWP[cond3] = self.AreaSPhase[cond3]
+            self._areaNWP[cond3] = self.areaSPhase[cond3]
             self._condWP[cond3] = 0.0
             self._condNWP[cond3] = self.gnwSPhase[cond3]
         except AssertionError:
@@ -362,41 +369,35 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         condc = (self.fluid == 1) & (self.Garray >= self.bndG2) #circles filled with nw
         condac = (conda | condc)
 
-        self.PistonPcAdv[condac] = 2.0*self.sigma*np.cos(
-            self.thetaAdvAng[condac])/self.Rarray[condac]
+        self.PistonPcAdv[condac] = 2.0*self.sigma*self.cosThetaAdvAng[condac]/self.Rarray[condac]
         conda = conda & (self.maxPc<self.PistonPcRec)
-        self.PistonPcAdv[conda] = self.maxPc*np.cos(self.thetaAdvAng[conda])/np.cos(
-            self.thetaRecAng[conda])
-        
+        self.PistonPcAdv[conda] = self.maxPc*self.cosThetaAdvAng[conda]/self.cosThetaRecAng[conda]
+
         normThresPress = (self.Rarray*self.maxPc)/self.sigma
         angSum = np.zeros(self.totElements)
         angSum[self.elemTriangle] = np.cos(self.thetaRecAng[
-            self.elemTriangle, np.newaxis] + self.halfAnglesTr).sum(axis=1)
+            self.elemTriangle][:, np.newaxis] + self.halfAnglesTr).sum(axis=1)
         angSum[self.elemSquare] = np.cos(self.thetaRecAng[
-            self.elemSquare, np.newaxis] + self.halfAnglesSq).sum(axis=1)
+            self.elemSquare][:, np.newaxis] + self.halfAnglesSq).sum(axis=1)
         rhsMaxAdvConAng = (-4.0*self.Garray*angSum)/(
-            normThresPress-np.cos(self.thetaRecAng)+12.0*self.Garray*np.sin(self.thetaRecAng))
+            normThresPress-self.cosThetaRecAng+12.0*self.Garray*self.sinThetaRecAng)
         rhsMaxAdvConAng = np.clip(rhsMaxAdvConAng, -1.0, 1.0)
         m_maxConAngSpont = np.arccos(rhsMaxAdvConAng)
 
-        condd = condb & (self.thetaAdvAng<m_maxConAngSpont) #calculte PHing
+        condd = condb & (self.thetaAdvAng<m_maxConAngSpont) #calculate PHing
         self.__PistonPcHing__(condd)
 
         conde = np.zeros(self.totElements, dtype='bool')
         conde[self.elemTriangle] = condb[self.elemTriangle] & (~condd[self.elemTriangle]) & (
             self.thetaAdvAng[self.elemTriangle] <= np.pi/2+self.halfAnglesTr[:, 0])
-        self.PistonPcAdv[conde] = 2.0*self.sigma*np.cos(
-             self.thetaAdvAng[conde])/self.Rarray[conde]
+        self.PistonPcAdv[conde] = 2.0*self.sigma*self.cosThetaAdvAng[conde]/self.Rarray[conde]
         
-        condf = condb & (~condd) & (~conde)         #use Imbnww
-        #self.__PistonPcImbnww__(condf) this should be run for condf later
-        self.PistonPcAdv[condf] = 2.0*self.sigma*np.cos(
-             self.thetaAdvAng[condf])/self.Rarray[condf]
+        condf = condb & (~condd) & (~conde) 
+        self.PistonPcAdv[condf] = 2.0*self.sigma*self.cosThetaAdvAng[condf]/self.Rarray[condf]
         
 
     def __PistonPcHing__(self, arrr):
-        # compute entry capillary pressures for piston displacement
-
+        ''' compute entry capillary pressures for piston displacement '''
         arrrS = arrr[self.elemSquare]
         arrrT = arrr[self.elemTriangle]
         
@@ -414,7 +415,6 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
                 self.elemSquare, arrrS, self.halfAnglesSq, self.cornExistsSq,
                 self.initOrMaxPcHistSq, self.initOrMinApexDistHistSq, self.advPcSq,
                 self.recPcSq, self.initedApexDistSq)
-            #from IPython import embed; embed()
         except AssertionError:
             pass
        
@@ -422,7 +422,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
     def Pc_pistonHing(self, arr, arrr, halfAng, m_exists, m_initOrMaxPcHist,
                       m_initOrMinApexDistHist, advPc, recPc, initedApexDist):
         
-        newPc = 1.1*self.sigma*2.0*np.cos(self.thetaAdvAng[arr])/self.Rarray[arr]
+        newPc = 1.1*self.sigma*2.0*self.cosThetaAdvAng[arr]/self.Rarray[arr]
         
         arrr1 = arrr.copy()
         apexDist = np.zeros(arrr.size)
@@ -450,8 +450,8 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
                 sumFour[cond1] += apexDist[cond1]
 
             a = (2*sumThree-sumTwo)
-            b = ((np.cos(self.thetaAdvAng[arr])*(self.Rarray[arr]/(
-                2*self.Garray[arr]))) -2*sumFour +sumOne)
+            b = ((self.cosThetaAdvAng[arr]*self.Rarray[arr]/(
+                2*self.Garray[arr])) - 2*sumFour + sumOne)
             c = (-pow(self.Rarray[arr], 2)/(4*self.Garray[arr]))
 
             arr1 = pow(b, 2)-np.array(4*a*c)
@@ -471,144 +471,44 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
 
         return newPc[arrr]
     
-    
     def __computeSnapoffPc__(self):
-        # update entry capillary pressure for Snap-off filling
-        arrr = (self.fluid == 1)
-        arrrTr = arrr[self.elemTriangle]
-        arrTr = self.elemTriangle[arrrTr]
-        arrrSq = arrr[self.elemSquare]
-        arrSq = self.elemSquare[arrrSq]
-        self.snapoffPc[arrr & (self.trappedNW)] = -1e28
+        ''' compute entry capillary pressure for Snap-off filling '''
+        self.snapoffPc1 = self.sigma/self.Rarray[self.elemTriangle]*(self.cosThetaAdvAng[
+            self.elemTriangle] - 2*self.sinThetaAdvAng[self.elemTriangle]/self.cotBetaTr[
+                :, 0:2].sum(axis=1))
         
-        try:
-            assert arrrTr.sum() > 0
-            cond = arrrTr & (~self.trappedNW[self.elemTriangle]) & (self.thetaAdvAng[
-                self.elemTriangle] < (np.pi/2.0 - self.halfAnglesTr[:, 0]))
-            arr = self.elemTriangle[cond]
-            snapoffPc1 = self.sigma*np.cos(self.thetaAdvAng[
-                self.elemTriangle]+self.halfAnglesTr[:, 0])/((
-                self.Rarray[self.elemTriangle]/np.tan(self.halfAnglesTr[:,0]) +
-                self.Rarray[self.elemTriangle]/np.tan(self.halfAnglesTr[:,2]) -
-                self.initedApexDistTr[:,2])*np.sin(self.halfAnglesTr[:,0]))
-            oldPc = np.full(cond.size, self.maxPc)
-            arrtrapped = self.elemTriangle[self.trappedNW[self.elemTriangle]]
-            oldPc[self.trappedNW[self.elemTriangle]] = self.PcI[arrtrapped]
-            L0pL2 = (self.Rarray[self.elemTriangle]/np.tan(self.halfAnglesTr[:,0]) +
-                     self.Rarray[self.elemTriangle]/np.tan(self.halfAnglesTr[:,1]))
-            condc = cond.copy()
-            
-            i=0
-            while True:
-                apexDist = np.zeros(condc.size)
-                teta2 = self.thetaAdvAng.copy()
-                conAng, apexDist = self.do.cornerApex(
-                        self.elemTriangle, condc, self.halfAnglesTr[:, 1], oldPc, teta2,
-                        self.cornExistsTr[:, 1], self.initOrMaxPcHistTr[:, 1],
-                        self.initOrMinApexDistHistTr[:, 1], self.advPcTr[:, 1],
-                        self.recPcTr[:, 1], apexDist, self.initedApexDistTr[:, 1],
-                        accurat=True, overidetrapping=True)
+        apexDistTr = self.sigma*np.cos(self.thetaRecAng[
+            self.elemTriangle][:, np.newaxis]+self.halfAnglesTr)/np.sin(
+                self.halfAnglesTr)
+        self._thetaHi_a = apexDistTr*np.sin(self.halfAnglesTr)/self.sigma
+        
+        self._snapoffPc2a = self.sigma/self.Rarray[self.elemTriangle]/(
+            self.cotBetaTr[:, [0, 2]].sum(axis=1))
+        self._snapoffPc2num = self.cosThetaAdvAng[self.elemTriangle]*self.cotBetaTr[:, 0] -\
+            self.sinThetaAdvAng[self.elemTriangle]
 
-                ang=conAng[condc]
-                angadv=teta2[self.elemTriangle[condc]]
-                rL2 = -apexDist[condc]*np.sin(self.halfAnglesTr[condc,1])/(
-                    self.sigma*np.sin(ang+self.halfAnglesTr[condc,1]))
-                func = oldPc[condc] - self.sigma*(
-                    np.cos(angadv)/np.tan(self.halfAnglesTr[condc,0]) - np.sin(angadv) + np.cos(ang)/np.tan(
-                        self.halfAnglesTr[condc,1]) - np.sin(ang)) / L0pL2[condc]
-                funcDpc = 1 + self.sigma*(rL2*np.sin(ang)/np.tan(
-                    self.halfAnglesTr[condc,1]) +  rL2*np.cos(ang)) / L0pL2[condc]
-                condd = (abs(funcDpc)>1.0e-32)
-                
-
-                newPc = oldPc[condc]
-                newPc[condd] = newPc[condd] - func[condd]/funcDpc[condd]
-                newPc[~condd] = newPc[~condd] - func[~condd]
-                try:
-                    assert i > self.MAX_ITER/2
-                    newPc = 0.5*(newPc+oldPc[condc])
-                except AssertionError:
-                    pass
+        self.snapoffPc[self.elemSquare] = self.sigma/self.Rarray[self.elemSquare]*(
+            self.cosThetaAdvAng[self.elemSquare] - self.sinThetaAdvAng[self.elemSquare])
+        
     
-                err = abs(newPc-oldPc[condc])/(abs(oldPc[condc])+1e-8)
-                conde = (err < self.EPSILON) & (ang <= angadv+1e-6)
-                condf = (err < self.EPSILON) & ~(ang <= angadv+1e-6)
-                newPc[conde] = np.maximum(newPc[conde], snapoffPc1[condc][conde])+1e-4
-                newPc[condf] = snapoffPc1[condc][condf]+1e-4
-                oldPc[condc] = newPc
-                condc[condc] = (err >= self.EPSILON)
-
-                try:
-                    assert condc.sum() == 0
-                    self.snapoffPc[arr] = oldPc[cond]
-                    break            
-                except AssertionError:
-                    i += 1
-        except AssertionError:
-            pass
-
-        try:
-            assert np.any(arrrSq)
-            cond = arrrSq & (~self.trappedNW[self.elemSquare]) & (self.thetaAdvAng[
-                self.elemSquare] < (np.pi/2.0 - self.halfAnglesSq[0]))
-            arr = self.elemSquare[cond]
-            self.snapoffPc[arr] = self.sigma/self.Rarray[arr]*(
-                np.cos(self.thetaAdvAng[arr]) - np.sin(self.thetaAdvAng[arr]))            
-        except AssertionError:
-            pass
+    def __updateSnapoffPc__(self, Pc: float):
+        ''' update entry capillary pressure for Snap-off filling '''
+        arrrTr = (self.fluid[self.elemTriangle] == 1)
+        thetaHi = np.arccos(self._thetaHi_a[arrrTr]*Pc/self.maxPc)
+        snapoffPc2 = self._snapoffPc2a[arrrTr]*(
+            self._snapoffPc2num[arrrTr]+np.cos(thetaHi[:, 2])*self.cotBetaTr[arrrTr, 2]
+            - np.sin(thetaHi[:, 2]))
+        self.snapoffPc[self.elemTriangle[arrrTr]] = np.max(
+            [self.snapoffPc1[arrrTr], snapoffPc2], axis=0)
         
-
-    def __computeSnapoffPc1__(self, Pc: float):
-        # update entry capillary pressure for Snap-off filling
-        arrr = (self.fluid == 1)
-        arrrTr = arrr[self.elemTriangle]
-        arrTr = self.elemTriangle[arrrTr]
-        arrSq = self.elemSquare[arrr[self.elemSquare]]
-        
-        cotBetaTr = 1/np.tan(self.halfAnglesTr)
-        cotBetaSq = 1/np.tan(self.halfAnglesSq)
-        
-        snapoffPc1 = self.sigma/self.Rarray[arrTr]*(np.cos(
-            self.thetaAdvAng[arrTr]) - 2*np.sin(
-            self.thetaAdvAng[arrTr])/cotBetaTr[arrrTr, 0:2].sum(axis=1))
-        apexDistTr = self.sigma/self.maxPc*np.cos(self.thetaRecAng[
-            arrTr][:, np.newaxis]+self.halfAnglesTr[arrrTr])/np.sin(
-                self.halfAnglesTr[arrrTr])
-        thetaHi = np.arccos(apexDistTr*np.sin(self.halfAnglesTr[arrrTr])/(
-            self.sigma/Pc))
-        snapoffPc2 = self.sigma/self.Rarray[arrTr] * (np.cos(
-            self.thetaAdvAng[arrTr])*cotBetaTr[arrrTr, 0] - np.sin(
-            self.thetaAdvAng[arrTr]) + np.cos(thetaHi[:, 2])*cotBetaTr[arrrTr, 2]
-            - np.sin(thetaHi[:, 2]))/(cotBetaTr[:, [0, 2]][arrrTr].sum(axis=1))
-        self.snapoffPc[arrTr] = np.max([snapoffPc1, snapoffPc2], axis=0)
-        self.snapoffPc[arrSq] = self.sigma/self.Rarray[arrSq]*(np.cos(
-            self.thetaAdvAng[arrSq]) - 2*np.sin(self.thetaAdvAng[arrSq])/(
-            cotBetaSq[0]*2))
-         
-
-    def __func1(self, i):
-        try:
-            return (self.fluid[self.PTConData[i]+self.nPores] == 0).sum()
-        except IndexError:
-            return 0.0
-    
-        
-    def __func(self, i):
-        try:
-            arr = self.elem[i].neighbours
-            return self.PistonPcAdv[arr[self.fluid[arr]==0]].max()
-        except (IndexError, ValueError):
-            return 0.0
         
     def __removeElem(self, i):
         try:
             self.ElemToFill.remove(i)
         except ValueError:
-            try:
-                m = npi.indices(self.ElemToFill, [i])[0]
-                del self.ElemToFill[m]
-            except KeyError:
-                pass
+            m = npi.indices(self.ElemToFill, [i])[0]
+            del self.ElemToFill[m]
+            
 
     def LookupList(self, k):
         return (-round(self.PcI[k], 9), k <= self.nPores, -k)
@@ -619,108 +519,60 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
 
         cond = (self.fluid == 1)  # elements filled with nw
         arrP = arr[cond[arr] & (arr <= self.nPores)]   #pores filled with nw
-        arr1 = np.array([*map(lambda i: self.__func1(i), arrP)])
+        arr1 = np.sum(self.fluid[self.PTConnections[arrP]]==0, axis=1,
+                      where=(self.PTConnections[arrP]>0))
+        
         cond1 = (arr1 > 0) & (self.thetaAdvAng[arrP] < np.pi/2.0) #pores for porebody filling
         self.__porebodyFilling__(arrP[cond1])
         entryPc[arrP[cond1]] = self.porebodyPc[arrP[cond1]]
         
         arrr = arr[cond[arr]]
-        maxNeiPistonPrs[arrr] = np.array([*map(lambda i: self.__func(i), arrr)])
+        arrrP = arrr[arrr<=self.nPores]
+        arrrT = arrr[arrr>self.nPores]-self.nPores
+        maxNeiPistonPrs[arrrP] = np.max(self.PistonPcAdv[self.PTConnections[arrrP]], axis=1,
+                                        where=((self.PTConnections[arrrP]>0)&
+                                               (self.fluid[self.PTConnections[arrrP]]==0)),
+                                        initial=0.0)
+        maxNeiPistonPrs[arrrT+self.nPores] = np.max(self.PistonPcAdv[self.TPConnections[arrrT]],
+                                                    axis=1, initial=0.0,
+                                                    where=(
+                                                        (self.fluid[self.TPConnections[arrrT]]==0)))
+
         condb = (maxNeiPistonPrs > 0.0)
         entryPc[condb] = np.minimum(0.999*maxNeiPistonPrs[
             condb]+0.001*entryPc[condb], entryPc[condb])
         
-        # Snap-off filling
-        self.__computeSnapoffPc1__(Pc)
-        #self.__computeSnapoffPc__()
+        ''' Snap-off filling '''
+        self.__updateSnapoffPc__(Pc)
         conda = (maxNeiPistonPrs > 0.0) & (entryPc > self.snapoffPc)
         entryPc[~conda&(self.Garray<self.bndG2)] = self.snapoffPc[~conda&(self.Garray<self.bndG2)]
         try:
             assert update
-            
             diff = (self.PcI[arr] != entryPc[arr])
             [*map(lambda i: self.__removeElem(i), arr[diff])]
             self.PcI[arr[diff]] = entryPc[arr[diff]]
             
-            # update the filling list
-            self.ElemToFill.update(arr[diff]) # try .__add__(other)
+            ''' update the filling list '''
+            self.ElemToFill.update(arr[diff])
         except AssertionError:
             self.PcI[arr] = entryPc[arr]
             self.ElemToFill.update(arr[(self.fluid[arr]==1)])
-            
 
-    def __porebodyFilling1__(self, ind):
-        try:
-            assert ind.size > 0
-        except AssertionError:
-            return
-        
-        #arr1 = np.array([self.PTConData[i][self.fluid[
-         #       self.PTConData[i]+self.nPores] == 1].size for i in ind])
-        arr1 = np.array([(self.fluid[
-                self.PTConData[i]+self.nPores]==1).sum() for i in ind])
-        if any(arr1>5):
-            print('greater than 5', arr1)
-        arr1[arr1 > 5] = 5
-        cond = (arr1 > 1)
-        
-        # Oren - not correct though!
-        #sumrand = np.array([*map(lambda i: self.rand(i-1).sum(), arr1[cond])])*self.Rarray[
-         #   ind[cond]]
-        
-        # Blunt2
-        sumrand = np.zeros(ind.size)
-        sumrand[cond] = np.array([*map(lambda i: (self.rand(i-1)*15000).sum(), arr1[cond])])
-
-        if any(arr1==5):
-            print('greater than 5', sumrand)
-
-
-        try:
-            # Blunt2
-            Pc = self.sigma*(2*np.cos(self.thetaAdvAng[ind])/self.Rarray[
-                ind] - sumrand)
-        except TypeError:
-            pass
-
-        if np.any(arr1==5):
-            print('greater than 5', Pc)
-        
-        return Pc
-
-
-    def __f(self, arr):
-        try:
-            assert arr.size>1
-            try:
-                arr=self.randNum[arr]
-                assert arr.size<=5
-                arr=arr[arr!=arr.max()]
-                return arr.sum()*15000
-            except AssertionError:
-                arr.sort()
-                return arr[:5].sum()*15000
-        except AssertionError:
-            return 0.0
     
     def __porebodyFilling__(self, ind):
         try:
             assert ind.size > 0
+            arr = self.PTConnections[ind]
+            cond = (self.fluid[arr]==1)&(arr>0)    
+            arr2 = np.sort(np.where(cond, self.randNum[arr], np.nan))[:, :6]
+            cond1 = (arr2!=np.nanmax(arr2, axis=1)[:,np.newaxis])&(~np.isnan(arr2))
+            sumrand = np.sum(arr2, where=cond1, axis=1)*15000
+
+            #Blunt2
+            self.porebodyPc[ind] = self.sigma*(
+                2*self.cosThetaAdvAng[ind]/self.Rarray[ind] - sumrand)
         except AssertionError:
-            return
-        
-        arr = self.PTConnections[ind]
-        arr1 = [i[(self.fluid[i]==1)&(i>0)] for i in arr]
-        sumrand = np.array([*map(lambda i: self.__f(i), arr1)])
-
-        try:
-            # Blunt2
-            Pc = self.sigma*(2*np.cos(self.thetaAdvAng[ind])/self.Rarray[
-                ind] - sumrand)
-        except TypeError:
             pass
-
-        self.porebodyPc[ind] = Pc
 
 
     def __writeHeadersI__(self):
@@ -769,12 +621,6 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             self.file_name = os.path.join(
                 result_dir, "Flowmodel_"+self.title+"_Imbibition_cycle"+str(self.cycle)+\
                     "_"+str(self._num)+".csv")
-
-
-    def renumCluster(self):
-        numOld = np.unique(self.trapCluster_W)
-        for ind, v in enumerate(numOld):
-            self.trapCluster_W[self.trapCluster_W==v] = ind
 
 
     def __writeTrappedData__(self):

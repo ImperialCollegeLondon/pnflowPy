@@ -1,5 +1,4 @@
 import os
-import sys
 import warnings
 from math import pi
 from time import time
@@ -8,6 +7,7 @@ import pandas as pd
 from sortedcontainers import SortedList
 from utilities import Computations
 from sPhase import SinglePhase
+from clustering import Cluster
 
 class TwoPhaseDrainage(SinglePhase):
     cycle = 0
@@ -20,24 +20,36 @@ class TwoPhaseDrainage(SinglePhase):
         
         self.fluid = np.zeros(self.totElements, dtype='int')
         self.fluid[-1] = 1   # already filled
+        self.hasWFluid = (self.fluid==0)|self.isPolygon
+        self.hasNWFluid = (self.fluid==1)
+        self.hasNWFluid[[-1,0]] = False
         self.trappedW = np.zeros(self.totElements, dtype='bool')
         self.trappedNW = np.zeros(self.totElements, dtype='bool')
-        self.trappedW_Pc = np.zeros(self.totElements)
-        self.trappedNW_Pc = np.zeros(self.totElements)
-        self.trapCluster_W = np.zeros(self.totElements, dtype='int')
-        self.trapCluster_NW = np.zeros(self.totElements, dtype='int')
-
+        
+        self._cornArea = self.areaSPhase.copy()
+        self._centerArea = np.zeros(self.totElements) 
+        self._cornCond = self.gwSPhase.copy()
+        self._centerCond = np.zeros(self.totElements)
+        
+        self.clusterW = Cluster(self, 0)
+        self.clusterNW = Cluster(self, 1)
+        self.clusterW_ID = -5*np.ones(self.totElements, dtype='int')
+        self.clusterNW_ID = -5*np.ones(self.totElements, dtype='int')
         self.trapped = self.trappedW
-        self.trappedPc = self.trappedW_Pc
-        self.trapClust = self.trapCluster_W
-        self.connW = self.connected.copy()
+        self.trappedData = self.clusterW
+        self.trapClust = self.clusterW_ID
+        
         self.connNW = np.zeros(self.totElements, dtype='bool')
-
+        arrr = self.hasWFluid.copy()
+        arrr[[0,-1]] = False
+        self.do.check_Trapping_Clustering(
+            self.elementListS[arrr], arrr.copy(), 0, 0, True, False)
+    
         self.contactAng, self.thetaRecAng, self.thetaAdvAng =\
             self.do.__wettabilityDistribution__()
         self.Fd_Tr = self.do.__computeFd__(self.elemTriangle, self.halfAnglesTr)
         self.Fd_Sq = self.do.__computeFd__(self.elemSquare, self.halfAnglesSq)
-
+        
         self.cornExistsTr = np.zeros([self.nTriangles, 3], dtype='bool')
         self.cornExistsSq = np.zeros([self.nSquares, 4], dtype='bool')
         self.initedTr = np.zeros([self.nTriangles, 3], dtype='bool')
@@ -54,7 +66,7 @@ class TwoPhaseDrainage(SinglePhase):
         self.recPcSq = np.zeros([self.nSquares, 4])
         self.hingAngTr = np.zeros([self.nTriangles, 3])
         self.hingAngSq = np.zeros([self.nSquares, 4])
-    
+        
         self.do.__initCornerApex__()
         self.__computePistonPc__()
         self.PcD = self.PistonPcRec.copy()
@@ -64,15 +76,10 @@ class TwoPhaseDrainage(SinglePhase):
             self.thetaRecAng[self.elementLists])/self.Rarray[self.elementLists]
         
         self.ElemToFill = SortedList(key=lambda i: self.LookupList(i))
-        ElemToFill = self.nPores+self.conTToIn
+        ElemToFill = self.conTToIn.copy()
         self.ElemToFill.update(ElemToFill)
         self.NinElemList = np.ones(self.totElements, dtype='bool')
         self.NinElemList[ElemToFill] = False
-
-        self._cornArea = self.AreaSPhase.copy()
-        self._centerArea = np.zeros(self.totElements) 
-        self._cornCond = self.gwSPhase.copy()
-        self._centerCond = np.zeros(self.totElements)
 
         self.capPresMax = 0
         self.capPresMin = 0
@@ -81,17 +88,16 @@ class TwoPhaseDrainage(SinglePhase):
         self.writeData = writeData
         self.writeTrappedData = writeTrappedData
 
-        self.qW, self.qNW = 0.0, 0.0
-        self.krw, self.krnw = 0.0, 0.0
+        self.qW, self.qNW = self.qwSPhase, 0.0
+        self.krw, self.krnw = 1.0, 0.0
         self.totNumFill = 0
-       
-
+        
     @property
-    def AreaWPhase(self):
+    def areaWPhase(self):
         return self._cornArea
     
     @property
-    def AreaNWPhase(self):
+    def areaNWPhase(self):
         return self._centerArea
     
     @property
@@ -121,11 +127,11 @@ class TwoPhaseDrainage(SinglePhase):
              self.capPresMax)*self.deltaPcFraction)*0.1)
         self.oldPcTarget = 0
         self.resultD_str = self.do.writeResult(self.resultD_str, self.capPresMin)
+        
 
         while self.filling:
             self.oldSatW = self.satW
             self.__PDrainage__()
-            
             if (self.PcTarget > self.maxPc-0.001) or (
                  self.satW < self.finalSat+0.00001):
                 self.filling = False
@@ -143,17 +149,16 @@ class TwoPhaseDrainage(SinglePhase):
 
                 while (self.PcTarget < self.maxPc-1e-8) and (self.satW>self.finalSat):
                     self.__CondTP_Drainage__()
-                    self.satW = self.do.Saturation(self.AreaWPhase, self.AreaSPhase)
-                    self.do.computePerm()
+                    self.satW = self.do.Saturation(self.areaWPhase, self.areaSPhase)
+                    self.do.computePerm(self.capPresMax)
                     self.resultD_str = self.do.writeResult(self.resultD_str, self.capPresMax)
 
                     self.PcTarget = min(self.maxPc-1e-7, self.PcTarget+(
                         self.minDeltaPc+abs(self.PcTarget)*self.deltaPcFraction))
                     if self.capPresMax == self.PcTarget: break
                     else: self.capPresMax = self.PcTarget
-                   
                 break
-
+           
         if self.writeData:
             with open(self.file_name, 'a') as fQ:
                 fQ.write(self.resultD_str)
@@ -164,34 +169,44 @@ class TwoPhaseDrainage(SinglePhase):
         self.rpd = self.sigma/self.maxPc
         print("Number of trapped elements: W: {}  NW:{}".format(
             self.trappedW.sum(), self.trappedNW.sum()))
-        print(self.rpd, self.sigma, self.maxPc)
-        print(len(self.ElemToFill), self.PcD[self.ElemToFill[:10]])
+        print('No of W clusters: {}, No of NW clusters: {}'.format(
+            np.count_nonzero(self.clusterW.size), 
+            np.count_nonzero(self.clusterNW.size)))
         self.is_oil_inj = False
         self.do.__finitCornerApex__(self.capPresMax)
         print('Time spent for the drainage process: ', time() - start)        
         print('==========================================================\n\n')
-        #from IPython import embed; embed()
-
 
     def popUpdateOilInj(self):
         k = self.ElemToFill.pop(0)
         capPres = self.PcD[k]
         self.capPresMax = np.max([self.capPresMax, capPres])
-
         try:
-            assert not self.do.isTrapped(k, 0, self.capPresMax)
+            assert not self.trappedW[k]
             self.fluid[k] = 1
+            self.hasNWFluid[k] = True
+            self.connNW[k] = True
+            self.clusterNW_ID[k] = 0
+            self.clusterNW.members[0, k] = True
             self.PistonPcRec[k] = self.centreEPOilInj[k]
-            arr = self.elem[k].neighbours
-            arr = arr[(self.fluid[arr] == 0) & ~(self.trappedW[arr]) & (arr>0)]
-            [*map(lambda i: self.do.isTrapped(i, 0, self.capPresMax), arr)]
-
+            arr = self.elem[k].neighbours[self.elem[k].neighbours>0]
+            arr = arr[self.hasWFluid[arr] & (~self.trappedW[arr])]
+            try:
+                assert self.isCircle[k]
+                kk = self.clusterW_ID[k]
+                self.clusterW_ID[k] = -5
+                self.clusterW.members[kk,k] = False
+                self.connW[k] = False
+                self.hasWFluid[k] = False
+                self.do.check_Trapping_Clustering(
+                    arr, self.hasWFluid.copy(), 0, self.capPresMax, True)
+            except AssertionError:
+                pass             
             self.cnt += 1
             self.invInsideBox += self.isinsideBox[k]
-            self.__update_PcD_ToFill__(arr)
+            self.__update_PcD_ToFill__(arr)            
         except AssertionError:
             pass
-    
 
     def __PDrainage__(self):
         warnings.simplefilter(action='ignore', category=RuntimeWarning)
@@ -212,6 +227,7 @@ class TwoPhaseDrainage(SinglePhase):
                         self.PcD[self.ElemToFill[0]] <= self.PcTarget):
                     self.popUpdateOilInj()
             except IndexError:
+                self.totNumFill += self.cnt
                 break
 
             try:
@@ -222,7 +238,7 @@ class TwoPhaseDrainage(SinglePhase):
                 pass
             
             self.__CondTP_Drainage__()
-            self.satW = self.do.Saturation(self.AreaWPhase, self.AreaSPhase)
+            self.satW = self.do.Saturation(self.areaWPhase, self.areaSPhase)
             self.totNumFill += self.cnt
             try:
                 self.fillTarget = max(self.m_minNumFillings, int(min(
@@ -244,8 +260,8 @@ class TwoPhaseDrainage(SinglePhase):
             self.PcTarget = self.capPresMax
         
         self.__CondTP_Drainage__()
-        self.satW = self.do.Saturation(self.AreaWPhase, self.AreaSPhase)
-        self.do.computePerm()
+        self.satW = self.do.Saturation(self.areaWPhase, self.areaSPhase)
+        self.do.computePerm(self.capPresMax)
         self.resultD_str = self.do.writeResult(self.resultD_str, self.capPresMax)
 
     
@@ -265,6 +281,7 @@ class TwoPhaseDrainage(SinglePhase):
         
     
     def __func(self, i):
+        '''returns the minimum receding Pc for pistonlike displacement'''
         try:
             arr = self.elem[i].neighbours
             return self.PistonPcRec[arr[(arr > 0) & (self.fluid[arr] == 1)]].min()
@@ -273,6 +290,7 @@ class TwoPhaseDrainage(SinglePhase):
 
     
     def __func3(self, i):
+        '''returns an element from the tofill list'''
         try:
             self.ElemToFill.remove(i)
             self.NinElemList[i] = True
@@ -301,14 +319,14 @@ class TwoPhaseDrainage(SinglePhase):
             pass
             
 
-    
     def __CondTP_Drainage__(self):
         # to suppress the FutureWarning and SettingWithCopyWarning respectively
         warnings.simplefilter(action='ignore', category=FutureWarning)
         pd.options.mode.chained_assignment = None
 
         try:
-            arrr = (self.fluid==1)&(self.AreaSPhase!=0.0)
+            arrr = (self.fluid==1)
+            arrr[[0, -1]] = False
             assert np.any(arrr)
         except AssertionError:
             return
@@ -316,7 +334,6 @@ class TwoPhaseDrainage(SinglePhase):
         arrrS = arrr[self.elemSquare]
         arrrT = arrr[self.elemTriangle]
         arrrC = arrr[self.elemCircle]
-
         try:
             assert np.any(arrrT)
             Pc = self.PcD[self.elemTriangle]
@@ -326,7 +343,6 @@ class TwoPhaseDrainage(SinglePhase):
                         self.initOrMaxPcHistTr,
                         self.initOrMinApexDistHistTr, self.advPcTr,
                         self.recPcTr, self.initedApexDistTr)
-            
             apexDist = np.zeros(self.hingAngTr.T.shape)
             conAngPT, apexDistPT = self.do.cornerApex(
                 self.elemTriangle, arrrT, self.halfAnglesTr.T, self.capPresMax,
@@ -345,7 +361,7 @@ class TwoPhaseDrainage(SinglePhase):
             self._cornCond[arrrT[condlist]] = cornG[condlist]
         except AssertionError:
             pass
-
+        
         try:
             assert np.any(arrrS)
             Pc = self.PcD[self.elemSquare]
@@ -373,6 +389,7 @@ class TwoPhaseDrainage(SinglePhase):
             self._cornCond[arrrS[condlist]] = cornG[condlist]
         except AssertionError:
             pass
+        
         try:
             assert np.any(arrrC)
             arrrC = self.elemCircle[arrrC]
@@ -380,9 +397,9 @@ class TwoPhaseDrainage(SinglePhase):
             self._cornCond[arrrC] = 0.0
         except  AssertionError:
             pass
-        
-        self._centerArea[arrr] = self.AreaSPhase[arrr] - self._cornArea[arrr]
-        self._centerCond[arrr] = self._centerArea[arrr]/self.AreaSPhase[arrr]*self.gnwSPhase[arrr]
+
+        self._centerArea[arrr] = self.areaSPhase[arrr] - self._cornArea[arrr]
+        self._centerCond[arrr] = self._centerArea[arrr]/self.areaSPhase[arrr]*self.gnwSPhase[arrr]
 
 
     def __fileName__(self):

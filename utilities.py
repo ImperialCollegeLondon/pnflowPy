@@ -1,27 +1,24 @@
-import os
-import sys
-
 import numpy as np
-from itertools import chain
-import numpy_indexed as npi
 from scipy.sparse import csr_matrix
 import warnings
-import numba as nb
-from numba import int64, float64
-from sortedcontainers import SortedList
 from solver import Solver
-
+from functools import reduce
 
 class Computations():
 
     def __init__(self, obj):
         self.obj = obj
-        self.isPolygon = (self.Garray <= self.bndG2)
+        self.toInlet = np.zeros(self.totElements, dtype='bool')
+        self.toInlet[self.conTToIn] = True
+        self.toOutlet = np.zeros(self.totElements, dtype='bool')
+        self.toOutlet[self.conTToOut] = True
+        self.toOutBdr = self.toOutlet.copy()
+        self.toOutBdr[self.conTToOutletBdr] = True
+        self.toOutBdr[0] = True
     
     def __getattr__(self, name):
         return getattr(self.obj, name)
-
-    #@nb.jit(nopython=True)
+    
     def matrixSolver(self, Amatrix, Cmatrix) -> np.array:
         return Solver(Amatrix, Cmatrix).solve()
     
@@ -43,191 +40,176 @@ class Computations():
                     cond2]/g[self.P2array[cond2]])
         gL[cond1] = 1/(self.LTarray_mod[cond1]/g[self.tList[cond1]] + self.LP1array_mod[
                     cond1]/g[self.P1array[cond1]])
-
         return gL
-
-
-    def isConnected(self, Notdone):
-        connected = np.zeros(self.totElements, dtype='bool')
-        conTToInlet = self.conTToInlet+self.nPores
-        conTToOutlet = self.conTToOutlet+self.nPores
-    
-        arrlist = list(conTToInlet[Notdone[conTToInlet]])
-        conTToOutlet = conTToOutlet[Notdone[conTToOutlet]]
+ 
+    def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False, 
+                                  updateConnectivity=False):
+        i = 0
+        arrDict = {}
         arrr = np.zeros(self.totElements, dtype='bool')
-        conn = np.zeros(self.totElements, dtype='bool')
-        
+        connectedCluster = []
         while True:
-            conn[:] = False
             try:
-                arr = arrlist.pop(np.argmin(self.distToExit[arrlist]))
-                while True:
-                    arrr[:] = False
+                i += 1
+                ii = arr[0]
+                done = np.zeros(self.totElements, dtype='bool')
+                notdone[ii] = False
+                done[ii] = True
+                arrr[ii] = True
+                trappedStatus, connStatus = True, False
+                try:
+                    assert ii<=self.nPores
+                    arrr[self.PTConData[ii]] = True
+                    ii = self.elementListS[(arrr&notdone)]
                     try:
-                        Notdone[arr] = False
-                        conn[arr] = True
-                        try:
-                            arrr[self.PTConnections[arr]] = True
-                            #arrr[np.array([*chain(*self.PTConData[arr])])+self.nPores] = True
-                        except TypeError:
-                            arrr[self.PTConData[arr]+self.nPores]=True
-                        except IndexError:
-                            arr = arr-self.nPores-1
-                            arrr[self.P1array[arr]] = True
-                            arrr[self.P2array[arr]] = True
-                        arr = self.elementListS[(arrr&Notdone)]
-                        assert arr.size > 0
+                        assert ii.size > 0
+                        done[ii] = True
+                        notdone[ii] = False
                     except AssertionError:
+                        cond1, cond2 = self.toInlet[done].any(), self.toOutBdr[done].any()
+                        assert cond1 or cond2
+                        trappedStatus = False
+                        assert cond1 and cond2
+                        connStatus = True
+                        connectedCluster.append(i)
+                        arrDict[i] = {'members': done, 'connStatus': connStatus, 
+                                        'trappedStatus': trappedStatus}
+                        continue
+                except AssertionError:
+                    pass
+                while True:
+                    try:
+                        ii = ii-self.nPores-1
+                        p1, p2 = self.P1array[ii], self.P2array[ii]
+                        arrr[p1[p1>0]] = True
+                        arrr[p2[p2>0]] = True
+                        ii = self.elementListS[(arrr&notdone)]
+                        assert ii.size > 0
+                        notdone[ii] = False
+                        done[ii] = True
+                        tt = self.PTConnections[ii]
+                        arrr[tt[tt>0]] = True
+                        ii = self.elementListS[(arrr&notdone)]
+                        assert ii.size > 0
+                        notdone[ii] = False
+                        done[ii] = True
+                    except AssertionError:
+                        cond1 = self.toInlet[done].any()
                         try:
-                            assert conn[conTToOutlet].sum()>0
-                            connected[conn] = True
+                            assert cond1 or self.toOutlet[done].any()
+                            trappedStatus = False
                         except AssertionError:
                             pass
-
-                        arrlist = np.array(arrlist)
-                        arrlist = list(arrlist[Notdone[arrlist]])
-
+                        try:
+                            assert cond1 and self.toOutBdr[done].any()
+                            connStatus = True
+                            connectedCluster.append(i)
+                        except AssertionError:
+                            pass
+                        arrDict[i] = {'members': done, 'connStatus': connStatus, 
+                                        'trappedStatus': trappedStatus}
+                        arr = arr[notdone[arr]]
                         break
-            except (IndexError, ValueError):
+            except IndexError:
                 break
-    
-        return connected
-                
-
-    def isTrapped(self, i, fluid, Pc, args=None):
         try:
-            assert not args
-            (trapped, trappedPc, trapClust) = (
-                self.trapped, self.trappedPc, self.trapClust)
+            assert updateCluster
+            try:
+                assert fluid==0
+                self.clusterW.clustering(arrDict, fluid, Pc)
+            except AssertionError:
+                self.clusterNW.clustering(arrDict, fluid, Pc)
         except AssertionError:
-            (trapped, trappedPc, trapClust) = args
-        
+            pass
+
         try:
-            assert trapped[i]
-            return True
+            assert not updateConnectivity
+            return
         except AssertionError:
-            try:
-                assert fluid
-                Notdone = (self.fluid==1)
-            except AssertionError:
-                Notdone = (self.fluid==0)|self.isPolygon
-
-        arr = Notdone.copy()
-        Notdone[[-1, 0, i]] = True, True, False
-        arrlist = [i]
-        canAdd = Notdone.copy()
-
-        while True:
-            try:
-                j = arrlist.pop(np.argmin(self.distToBoundary[arrlist]))
-                assert j>0
-                Notdone[j] = False
-                pt = self.elem[j].neighbours
-                arrlist.extend(pt[canAdd[pt]])
-                canAdd[pt] = False
-            except AssertionError:
-                Notdone[arrlist] = False
-                try:
-                    arrlist = np.array(arrlist)[trapped[arrlist]]
-                    arrl = []
-                    [arrl.extend(self.elementLists[
-                        (trapClust==k)[1:-1]]) for k in set(trapClust[arrlist])]
-                    Notdone[arrl] = False
-                except (IndexError, AssertionError):
-                    pass
-                
-                arr = (arr & ~Notdone)
-                trapped[arr] = False
-                trappedPc[arr] = 0.0
-                trapClust[arr] = 0
-                return False
-            except (IndexError, ValueError):
-                arr = (arr & ~Notdone)
-                try:
-                    assert trapped[arr].sum()==0
-                    trapped[arr] = True
-                    trappedPc[arr] = Pc
-                    trapClust[arr] = trapClust.max()+1
-                except AssertionError:
-                    trapped[arr] = True
-                    trappedPc[arr] = trappedPc[
-                        arr&(trapClust==trapClust[arr].max())][0]
-                    trapClust[arr] = trapClust[arr].max()
-                return True
-            
+            if len(connectedCluster)==1:
+                return arrDict[connectedCluster[0]]['members']
+            elif len(connectedCluster)==0:
+                return np.zeros(self.totElements, dtype=bool)
+            else:
+                return reduce(np.logical_or, (arrDict[k]['members'] for k in connectedCluster))
 
     def __getValue__(self, arrr, gL):
         row, col, data = [], [], []
-        indP = self.poreListS[arrr[self.poreListS]]
+        indP = self.poreList[arrr[self.poreList]]
         c = indP.size
-        Cmatrix = np.zeros(c)
         mList = -np.ones(self.nPores+2, dtype='int')
         mList[indP] = np.arange(c)
 
-        # throats within the calcBox
-        cond1 = arrr[self.tList] & self.isinsideBox[self.P1array] & self.isinsideBox[self.P2array]
-        t_1, P1_1, P2_1 = self.throatList[cond1], mList[self.P1array[cond1]], mList[
-            self.P2array[cond1]]
+        arrrT = arrr[self.tList]
+        arrrP1, arrrP2 = arrr[self.P1array], arrr[self.P2array]
+
+        ''' throats within the calcBox '''
+        cond1 = arrrT & arrrP1 & arrrP2
+        arrr[self.tList[cond1]] = False
+        t_1 = self.throatList[cond1]
+        P1_1, P2_1 = mList[self.P1array[cond1]], mList[self.P2array[cond1]]
         cond_1 = gL[t_1-1]
 
-        # throats connected to the inletBdr
-        cond2 = (arrr[self.tList])&(self.isOnInletBdr[self.P1array]|self.isOnInletBdr[self.P2array])
-        #from IPython import embed; embed()
-        indP2 = np.where(self.isOnInletBdr[self.P1array[cond2]], self.P2array[cond2], 
-                         self.P1array[cond2])
-        t_2, P_2 = self.throatList[cond2], mList[indP2]
+        ''' throats connected to the inletBdr '''
+        cond2a = arrrT & (self.isOnInletBdr[self.P1array]&arrrP2)
+        cond2b = arrrT & (self.isOnInletBdr[self.P2array]&arrrP1)
+        indP2 = np.concatenate((self.P2array[cond2a], self.P1array[cond2b]))
+        P_2 = mList[indP2]
+        t_2 = np.concatenate((self.throatList[cond2a], self.throatList[cond2b]))
         cond_2 = gL[t_2-1]
+        Cmatrix = np.bincount(P_2, cond_2, c) #set up the Cmatrix
 
-        # throats connectec to the outletBdr
-        cond3 = (arrr[self.tList])&(self.isOnOutletBdr[self.P1array]|self.isOnOutletBdr[
-            self.P2array])
-        indP3 = np.where(self.isOnOutletBdr[self.P1array[cond3]], self.P2array[cond3],
-                         self.P1array[cond3])
-        t_3, P_3 = self.throatList[cond3], mList[indP3]
+        ''' throats connected to the outletBdr '''
+        cond3a = arrrT & (self.isOnOutletBdr[self.P1array]&arrrP2)
+        cond3b = arrrT & (self.isOnOutletBdr[self.P2array]&arrrP1)
+        indP3 = np.concatenate((self.P2array[cond3a], self.P1array[cond3b]))
+        P_3 = mList[indP3]
+        t_3 = np.concatenate((self.throatList[cond3a], self.throatList[cond3b]))
         cond_3 = gL[t_3-1]
 
-        #if c>50000:
-         #   from IPython import embed; embed()
-
+        ''' set up the Amatrix '''
         row = np.concatenate((P1_1, P2_1, P1_1, P2_1, P_2, P_3))
         col = np.concatenate((P2_1, P1_1, P1_1, P2_1, P_2, P_3))
         data = np.concatenate((-cond_1, -cond_1, cond_1, cond_1, cond_2, cond_3))
-        np.add.at(Cmatrix, P_2, cond_2)
-    
         Amatrix = csr_matrix((data, (row, col)), shape=(c, c), dtype=float)
-        
+
         return Amatrix, Cmatrix
     
-    
-
     def Saturation(self, AreaWP, AreaSP):
         satWP = AreaWP/AreaSP
         num = (satWP[self.isinsideBox]*self.volarray[self.isinsideBox]).sum()
         return num/self.totVoidVolume
     
 
-    def computeFlowrate(self, gL):
+    def computeFlowrate(self, gL, fluid, Pc):
+        conn = self.connW.copy() if fluid==0 else self.connNW.copy()
+        conTToIn = self.conTToIn.copy()
         arrr = np.zeros(self.totElements, dtype='bool')    
         arrr[self.P1array[(gL > 0.0)]] = True
         arrr[self.P2array[(gL > 0.0)]] = True
         arrr[self.tList[(gL > 0.0)]] = True
-        arrr = (arrr & self.connected & self.isinsideBox)
-
-        self.conn = self.isConnected(arrr)
-        #from IPython import embed; embed()
-        Amatrix, Cmatrix = self.__getValue__(self.conn, gL)
-
+        arrr = (arrr & self.connected)
+        conn = self.check_Trapping_Clustering(
+            conTToIn[arrr[conTToIn]], arrr.copy(), fluid, Pc, updateConnectivity=True)
+        try:
+            assert fluid==0
+            self.obj.connW = conn
+        except AssertionError:
+            self.obj.connNW = conn
+        conn = conn & self.isinsideBox
+        Amatrix, Cmatrix = self.__getValue__(conn, gL)
+           
         pres = np.zeros(self.nPores+2)
-        pres[self.conn[self.poreListS]] = self.matrixSolver(Amatrix, Cmatrix)
+        pres[conn[self.poreListS]] = self.matrixSolver(Amatrix, Cmatrix)
         pres[self.isOnInletBdr[self.poreListS]] = 1.0       
         delP = np.abs(pres[self.P1array] - pres[self.P2array])
         qp = gL*delP
-
+        
         try:
-            conTToInlet = self.conTToInlet[self.conn[self.conTToInlet+self.nPores]]
-            conTToOutlet = self.conTToOutlet[self.conn[self.conTToOutlet+self.nPores]]
-            qinto = qp[conTToInlet-1].sum()
-            qout = qp[conTToOutlet-1].sum()
+            conTToInletBdr = self._conTToInletBdr[conn[self.conTToInletBdr]]
+            conTToOutletBdr = self._conTToOutletBdr[conn[self.conTToOutletBdr]]
+            qinto = qp[conTToInletBdr-1].sum()
+            qout = qp[conTToOutletBdr-1].sum()
             assert np.isclose(qinto, qout, atol=1e-30)
             qout = (qinto+qout)/2
         except AssertionError:
@@ -236,27 +218,21 @@ class Computations():
         return qout
 
     
-    def computePerm(self):
+    def computePerm(self, Pc):
         gwL = self.computegL(self.gWPhase)
-        self.obj.qW = self.qW = self.computeFlowrate(gwL)
-        self.obj.krw = self.krw = self.krw = self.qW/self.qwSPhase
-        self.trapCluster_W[self.conn] = 0
-        self.trappedW[self.conn] = False
-        self.connW[:] = self.conn
-        
+        self.obj.qW = self.qW = self.computeFlowrate(gwL, 0, Pc)
+        self.obj.krw = self.krw = self.qW/self.qwSPhase
+       
         try:
-            assert self.fluid[self.conTToOutlet+self.nPores].sum() > 0
+            assert self.fluid[self.conTToOutletBdr].sum() > 0
             gnwL = self.computegL(self.gNWPhase)
-            self.obj.qNW = self.qNW = self.computeFlowrate(gnwL)
+            self.obj.qNW = self.qNW = self.computeFlowrate(gnwL, 1, Pc)
             self.obj.krnw = self.krnw = self.qNW/self.qnwSPhase
-            self.trapCluster_NW[self.conn] = 0
-            self.trappedNW[self.conn] = False
-            self.connNW[:] = self.conn
         except AssertionError:
             self.qNW, self.krnw = 0.0, 0.0
         
         self.obj.fw = self.qW/(self.qW + self.qNW)
-    
+
 
     def weibull(self) -> np.array:
         randNum = self.rand(self.nPores)
@@ -269,12 +245,14 @@ class Computations():
         
     
     def __wettabilityDistribution__(self) -> np.array:
-        # compute the distribution of contact angles in the network
+        ''' compute the distribution of contact angles in the network '''
         contactAng = np.zeros(self.totElements)
         conAng = self.weibull()        
 
-        print(np.array([conAng[self.poreList-1].mean(), conAng[self.poreList-1].std(),
-                        conAng[self.poreList-1].min(), conAng[self.poreList-1].max()])*180/np.pi)
+        arr = np.array([conAng[self.poreList-1].mean(), conAng[self.poreList-1].std(),
+            conAng[self.poreList-1].min(), conAng[self.poreList-1].max()])*180/np.pi
+        print('contact Angles (only pores): mean: {}, std: {}, min: {}, max: {}'.format(
+            np.round(arr[0],2), np.round(arr[1],2), np.round(arr[2],2), np.round(arr[3],2)))
 
         if self.distModel.lower() == 'rmax':
             sortedConAng = conAng[conAng.argsort()[::-1]]
@@ -307,21 +285,15 @@ class Computations():
         contactAng[self.tList[condc & (randNum <= 0.5)]] = contactAng[
             self.P2array[condc & (randNum <= 0.5)]]
         
-        #contactAng[self.poreList[self.fluid[self.poreList]==0]] = 0
-        #contactAng[self.tList[self.fluid[self.tList]==0]] = 0
-        #if not self.is_oil_inj:
-            #from IPython import embed; embed() 
-         #   randNum = self.rand((self.PcD > self.maxPc).sum())
-          #  contactAng[self.fluid==0] = 40/180*np.pi   #*randNum         # Uniform Distribution'''
-        
-        print(np.array([contactAng.mean(), contactAng.std(), contactAng.min(), contactAng.max()])*180/np.pi)
-        #from IPython import embed; embed()
+        arr = np.array([contactAng.mean(), contactAng.std(), contactAng.min(), contactAng.max()]
+                     )*180/np.pi
+        print('contact Angles (all elements): mean: {}, std: {}, min: {}, max: {}'.format(
+            np.round(arr[0],2), np.round(arr[1],2), np.round(arr[2],2), np.round(arr[3],2)))
         thetaRecAng, thetaAdvAng = self.setContactAngles(contactAng)
 
         return contactAng, thetaRecAng, thetaAdvAng
 
 
-    
     def setContactAngles(self, contactAng) -> np.array:
         if self.wettClass == 1:
             thetaRecAng = contactAng.copy()
@@ -422,38 +394,35 @@ class Computations():
                overidetrapping=False):
         warnings.simplefilter(action='ignore', category=RuntimeWarning)
 
+        ''' update the apex dist and contact angle '''
         apexDist[~m_exists & arrr] = self.MOLECULAR_LENGTH
         delta = 0.0 if accurat else self._delta
-        # update the apex dist and contact angle
         conAng = np.ones(m_exists.shape)*conAng[arr]
 
         try:
             assert not overidetrapping
             apexDist[:, arrr] = initedApexDist[:, arrr]
             assert self.trappedW[arr[arrr]].sum()+self.trappedNW[arr[arrr]].sum()>0
-
-            trappedPc = self.trappedW_Pc[arr]
-            cond = (~self.trappedW[arr]) & self.trappedNW[arr] & arrr
-            trappedPc[cond] = self.trappedNW_Pc[arr[cond]]
+            arrr1 = arrr & self.trappedW[arr]
+            arrr2 = arrr & ~self.trappedW[arr] & self.trappedNW[arr]
+            trappedPc = np.zeros(arr.size)
+            trappedPc[arrr1] = np.array(self.clusterW.pc)[self.clusterW_ID[arr[arrr1]]]
+            trappedPc[arrr2] = np.array(self.clusterNW.pc)[self.clusterNW_ID[arr[arrr2]]]
             cond = (self.trappedW[arr]|self.trappedNW[arr])
-        
             part = np.clip((trappedPc*initedApexDist*np.sin(halfAng)).T[cond]/self.sigma, 
                            -0.999999, 0.999999)
             try:
                 conAng.T[cond] = np.clip(np.arccos(part)-halfAng.T[cond], 0.0, np.pi)
             except IndexError:
                 conAng.T[cond] = np.clip(np.arccos(part)-halfAng.T, 0.0, np.pi)
-            
         except AssertionError:
             pass
-
-        # condition 1
-        #print('condition 1')
+        
+        ''' condition 1 '''
         cond1a = m_exists & (advPc-delta <= Pc) & (Pc <= recPc+delta)
         cond1 = cond1a & arrr
         try:
             assert cond1.sum() > 0
-            
             part = np.clip(Pc*initedApexDist*np.sin(halfAng)/self.sigma, -0.999999, 0.999999)
             hingAng = np.clip((np.arccos(part)-halfAng)[cond1], -self._delta, np.pi+self._delta)
             conAng[cond1] = np.clip(hingAng, 0.0, np.pi)
@@ -461,8 +430,7 @@ class Computations():
         except AssertionError:
             pass
 
-        # condition 2
-        #print('condition 2')
+        ''' condition 2 '''
         cond2a = m_exists & ~cond1a & (Pc < advPc)
         cond2 = cond2a & arrr
         try:
@@ -473,7 +441,6 @@ class Computations():
 
             cond2b = (apexDist < initedApexDist) & cond2
             assert cond2b.sum() > 0
-            #print('  cond2b  ')
             part = np.clip(Pc*initedApexDist*np.sin(halfAng)/self.sigma, -0.999999, 0.999999)
             hingAng = np.clip((np.arccos(part)-halfAng)[cond2b], 0.0, np.pi)
             
@@ -482,8 +449,7 @@ class Computations():
         except AssertionError:
             pass
 
-        # condition 3
-        #print('  condition 3   ')
+        ''' condition 3 '''
         cond3a = m_exists & ~cond1a & ~cond2a & (Pc > m_initOrMaxPcHist)
         cond3 = cond3a & arrr
         try:
@@ -495,21 +461,17 @@ class Computations():
         except AssertionError:
             pass
 
-        # condition 4
-        #print('  condition 4  ')
+        ''' condition 4 '''
         cond4a = m_exists & ~cond1 & ~cond2a & ~cond3a & (Pc > recPc)
         cond4 = (cond4a*arrr)
         try:
             assert cond4.sum() > 0
-            #print('  condition 4  ')
-            #if not self.is_oil_inj and 10761 in arr: print('  cond4  ')
             conAng[cond4] = (self.thetaRecAng[arr]*cond4)[cond4]
             apexDist[cond4] = (self.sigma/Pc*np.cos(conAng+halfAng)/np.sin(halfAng))[cond4]
             cond4b = cond4 & (apexDist > initedApexDist)
             cond4c = cond4 & (~cond4b) & (apexDist < m_initOrMinApexDistHist)
             try:
                 assert cond4b.sum() > 0
-                #print('cond4b')
                 part = np.clip(Pc*initedApexDist*np.sin(halfAng)/self.sigma, -0.999999, 0.999999)
                 hingAng = np.clip((np.arccos(part)-halfAng)[cond4b], 0.0, np.pi)
                 conAng[cond4b] = hingAng
@@ -518,7 +480,6 @@ class Computations():
                 pass
             try:
                 assert cond4c.sum() > 0
-                #print('cond4c')
                 part = np.clip(Pc*m_initOrMinApexDistHist*np.sin(halfAng)/self.sigma, 
                                -0.999999, 0.999999)
                 hingAng = np.clip((np.arccos(part)-halfAng)[cond4c], 0.0, np.pi)
@@ -529,8 +490,7 @@ class Computations():
         except AssertionError:
             pass
 
-        # condition 5
-        #print('  condition 5  ')
+        ''' condition 5 '''
         cond5 = m_exists & ~cond1 & ~cond2 & ~cond3a & ~cond4a
         cond5 = (cond5*arrr)
         try:
@@ -545,7 +505,7 @@ class Computations():
 
 
     def calcAreaW(self, arrr, halfAng, conAng, m_exists, apexDist):
-        # -- obtain corner conductance -- #
+        ''' -- obtain corner conductance -- '''
         dimlessCornerA = np.zeros(m_exists.shape)
 
         cond1 = m_exists & (np.abs(conAng+halfAng-np.pi/2) < 0.01)
@@ -661,11 +621,11 @@ class Computations():
                     (m_initedApexDist*np.sin(halfAng))[cond])
         except AssertionError:
             pass
-        
+
 
     def writeResult(self, result_str, Pc):
-        print('Sw: %7.6g  \tqW: %8.6e  \tkrw: %8.6g  \tqNW: %8.6e  \tkrnw:\
-              %8.6g  \tPc: %8.6g\t %8.0f invasions' % (
+        print('Sw: %10.6g  \tqW: %8.6e  \tkrw: %12.6g  \tqNW: %8.6e  \tkrnw:\
+              %12.6g  \tPc: %8.6g\t %8.0f invasions' % (
               self.satW, self.qW, self.krw, self.qNW, self.krnw,
               Pc, self.totNumFill, ))
             
