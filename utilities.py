@@ -120,18 +120,78 @@ class Computations():
             except AssertionError:
                 self.clusterNW.clustering(arrDict, fluid, Pc)
         except AssertionError:
+<<<<<<< HEAD
             pass
 
+=======
+            (trapped, trappedPc, trapClust) = args
+        
+        
+>>>>>>> eaead80d7bc05a5f61bb25b79abbfb878a7fa08c
         try:
             assert not updateConnectivity
             return
         except AssertionError:
+<<<<<<< HEAD
             if len(connectedCluster)==1:
                 return arrDict[connectedCluster[0]]['members']
             elif len(connectedCluster)==0:
                 return np.zeros(self.totElements, dtype=bool)
             else:
                 return reduce(np.logical_or, (arrDict[k]['members'] for k in connectedCluster))
+=======
+            try:
+                assert fluid
+                Notdone = (self.fluid==1)
+            except AssertionError:
+                Notdone = (self.fluid==0)|self.isPolygon
+
+        arr = Notdone.copy()
+        Notdone[[-1, 0, i]] = True, True, False
+        arrlist = [i]
+        canAdd = Notdone.copy()
+
+        while True:
+            try:
+                j = arrlist.pop(np.argmin(self.distToBoundary[arrlist]))
+                assert j>0
+                Notdone[j] = False
+                pt = self.elem[j].neighbours
+                arrlist.extend(pt[canAdd[pt]])
+                canAdd[pt] = False
+            except AssertionError:
+                
+                Notdone[arrlist] = False
+                try:
+                    arrlist = np.array(arrlist)[trapped[arrlist]]
+                    arrl = []
+                    [arrl.extend(self.elementLists[
+                        (trapClust==k)[1:-1]]) for k in set(trapClust[arrlist])]
+                    
+                    Notdone[arrl] = False
+                except (IndexError, AssertionError):
+                    pass
+                
+                arr = (arr & ~Notdone)
+                trapped[arr] = False
+                trappedPc[arr] = 0.0
+                trapClust[arr] = 0
+                return False
+            except (IndexError, ValueError):
+                arr = (arr & ~Notdone)
+                try:
+                    assert trapped[arr].sum()==0
+                    trapped[arr] = True
+                    trappedPc[arr] = Pc
+                    trapClust[arr] = trapClust.max()+1
+                except AssertionError:
+                    trapped[arr] = True
+                    trappedPc[arr] = trappedPc[
+                        arr&(trapClust==trapClust[arr].max())][0]
+                    trapClust[arr] = trapClust[arr].max()
+                return True
+            
+>>>>>>> eaead80d7bc05a5f61bb25b79abbfb878a7fa08c
 
     def __getValue__(self, arrr, gL):
         row, col, data = [], [], []
@@ -403,11 +463,17 @@ class Computations():
             assert not overidetrapping
             apexDist[:, arrr] = initedApexDist[:, arrr]
             assert self.trappedW[arr[arrr]].sum()+self.trappedNW[arr[arrr]].sum()>0
+<<<<<<< HEAD
             arrr1 = arrr & self.trappedW[arr]
             arrr2 = arrr & ~self.trappedW[arr] & self.trappedNW[arr]
             trappedPc = np.zeros(arr.size)
             trappedPc[arrr1] = np.array(self.clusterW.pc)[self.clusterW_ID[arr[arrr1]]]
             trappedPc[arrr2] = np.array(self.clusterNW.pc)[self.clusterNW_ID[arr[arrr2]]]
+=======
+            trappedPc = self.trappedW_Pc[arr]
+            cond = (~self.trappedW[arr]) & self.trappedNW[arr] & arrr
+            trappedPc[cond] = self.trappedNW_Pc[arr[cond]]
+>>>>>>> eaead80d7bc05a5f61bb25b79abbfb878a7fa08c
             cond = (self.trappedW[arr]|self.trappedNW[arr])
             part = np.clip((trappedPc*initedApexDist*np.sin(halfAng)).T[cond]/self.sigma, 
                            -0.999999, 0.999999)

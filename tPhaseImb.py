@@ -109,6 +109,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         self.fillTarget = max(self.m_minNumFillings, int(
             self.m_initStepSize*(self.totElements)*(
                 self.satW-self.SwTarget)))
+        
 
         while self.filling:
             self.__PImbibition__()
@@ -171,8 +172,14 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
                         self.popUpdateWaterInj()
                     except AssertionError:
                         try:
+<<<<<<< HEAD
                             assert (self.clusterNW.members[0][self.conTToIn].any() and 
                                     self.clusterNW.members[0][self.conTToOutletBdr].any())
+=======
+                            self.fluid[self.ElemToFill[0]] = 0
+                            assert self.isNWConnected()
+                            self.fluid[self.ElemToFill[0]] = 1
+>>>>>>> eaead80d7bc05a5f61bb25b79abbfb878a7fa08c
                             self.popUpdateWaterInj()
                         except AssertionError:
                             self.filling = False
@@ -203,7 +210,6 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             self.PcTarget = self.capPresMin
         except IndexError:
             pass
-
         self.__CondTPImbibition__()
         self.satW = self.do.Saturation(self.areaWPhase, self.areaSPhase)
         self.do.computePerm(self.capPresMin)
@@ -214,7 +220,6 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         k = self.ElemToFill.pop(0)
         capPres = self.PcI[k]
         self.capPresMin = np.min([self.capPresMin, capPres])
-
         try:
             assert not self.trappedNW[k]
             self.fluid[k] = 0
@@ -248,12 +253,51 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
                 self.porebodyPc[k]==capPres)+3*(self.snapoffPc[k]==capPres)
             self.cnt += 1
             self.invInsideBox += self.isinsideBox[k]
+<<<<<<< HEAD
             neighb = neigh[self.hasNWFluid[neigh]]
             self.do.check_Trapping_Clustering(
                 neighb, self.hasNWFluid.copy(), 1, self.capPresMin, True)
             self.__computePc__(self.capPresMin, neighb)
         except AssertionError:
             pass    
+=======
+
+            arr = self.elem[k].neighbours
+            arr = arr[(self.fluid[arr] == 1)&(~self.trappedNW[arr])&(arr>0)]
+            [*map(lambda i: self.do.isTrapped(i, 1, self.capPresMin), arr)]
+            self.__computePc__(self.capPresMin, arr)
+        except AssertionError:
+            pass
+
+    def isNWConnected(self):
+        Notdone = (self.fluid==1)&(self.isinsideBox)&(~self.trappedNW)
+        conTToInlet = self.conTToInlet+self.nPores
+        conTToOutlet = self.conTToOutlet+self.nPores
+        try:
+            assert Notdone[conTToInlet].sum()>0
+            assert Notdone[conTToOutlet].sum()>0
+            conTToOutlet = conTToOutlet[Notdone[conTToOutlet]]
+        except AssertionError:
+            return False
+        
+        arrlist = SortedList(key=lambda i: self.distToExit[i])
+        arrlist.update(conTToInlet[Notdone[conTToInlet]])
+
+        while True:
+            try:
+                i = arrlist.pop(0)
+                Notdone[i] = False
+                arr = self.elem[i].neighbours
+                arr = arr[Notdone[arr]]
+                Notdone[arr] = False
+                assert (~Notdone[conTToOutlet]).sum()==0
+                arrlist.update(arr)
+            except AssertionError:
+                return True
+            except IndexError:
+                return False
+
+>>>>>>> eaead80d7bc05a5f61bb25b79abbfb878a7fa08c
 
     def __CondTPImbibition__(self):
         # to suppress the FutureWarning and SettingWithCopyWarning respectively
@@ -542,8 +586,15 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         entryPc[condb] = np.minimum(0.999*maxNeiPistonPrs[
             condb]+0.001*entryPc[condb], entryPc[condb])
         
+<<<<<<< HEAD
         ''' Snap-off filling '''
         self.__updateSnapoffPc__(Pc)
+=======
+        # Snap-off filling
+        self.__computeSnapoffPc1__(Pc)
+        #self.__computeSnapoffPc__()
+
+>>>>>>> eaead80d7bc05a5f61bb25b79abbfb878a7fa08c
         conda = (maxNeiPistonPrs > 0.0) & (entryPc > self.snapoffPc)
         entryPc[~conda&(self.Garray<self.bndG2)] = self.snapoffPc[~conda&(self.Garray<self.bndG2)]
         try:

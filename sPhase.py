@@ -41,11 +41,18 @@ class SinglePhase(Network):
         arrr[self.P1array[(gLSP > 0.0)]] = True
         arrr[self.P2array[(gLSP > 0.0)]] = True
         arrr[self.tList[(gLSP > 0.0)]] = True
+<<<<<<< HEAD
         arrr = (arrr & self.connected)
 
         self.connW = compute.check_Trapping_Clustering(
             self.elementListS[arrr], arrr.copy(), 0, 0, False, True)
         conn = self.connW & self.isinsideBox
+=======
+        arrr = (arrr & self.connected & self.isinsideBox)
+    
+        conn = compute.isConnected(arrr)
+        
+>>>>>>> eaead80d7bc05a5f61bb25b79abbfb878a7fa08c
         AmatrixW, CmatrixW = compute.__getValue__(conn, gLSP)
         presSP = np.zeros(self.nPores+2)
         presSP[conn[self.poreListS]] = compute.matrixSolver(
