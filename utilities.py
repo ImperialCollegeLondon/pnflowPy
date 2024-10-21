@@ -10,11 +10,13 @@ class Computations():
         self.obj = obj
         self.toInlet = np.zeros(self.totElements, dtype='bool')
         self.toInlet[self.conTToIn] = True
+        self.toInBdr = self.toInlet.copy()
+        self.toInBdr[self.conTToInletBdr] = True
         self.toOutlet = np.zeros(self.totElements, dtype='bool')
         self.toOutlet[self.conTToOut] = True
         self.toOutBdr = self.toOutlet.copy()
         self.toOutBdr[self.conTToOutletBdr] = True
-        self.toOutBdr[0] = True
+        
     
     def __getattr__(self, name):
         return getattr(self.obj, name)
@@ -66,7 +68,7 @@ class Computations():
                         done[ii] = True
                         notdone[ii] = False
                     except AssertionError:
-                        cond1, cond2 = self.toInlet[done].any(), self.toOutBdr[done].any()
+                        cond1, cond2 = self.toInBdr[done].any(), self.toOutBdr[done].any()
                         assert cond1 or cond2
                         trappedStatus = False
                         assert cond1 and cond2
@@ -94,14 +96,13 @@ class Computations():
                         notdone[ii] = False
                         done[ii] = True
                     except AssertionError:
-                        cond1 = self.toInlet[done].any()
                         try:
-                            assert cond1 or self.toOutlet[done].any()
+                            assert self.toInlet[done].any() or self.toOutlet[done].any()
                             trappedStatus = False
                         except AssertionError:
                             pass
                         try:
-                            assert cond1 and self.toOutBdr[done].any()
+                            assert self.toInBdr[done].any() and self.toOutBdr[done].any()
                             connStatus = True
                             connectedCluster.append(i)
                         except AssertionError:
@@ -112,87 +113,55 @@ class Computations():
                         break
             except IndexError:
                 break
+    
         try:
-            assert updateCluster
+            lenClust = len(connectedCluster)
+            if lenClust==1:
+                mem = arrDict[connectedCluster[0]]['members']
+            elif lenClust==0:
+                mem = np.zeros(self.totElements, dtype=bool)
+            else:
+                mem = reduce(np.logical_or, (arrDict[k]['members'] for k in connectedCluster))
+
             try:
                 assert fluid==0
-                self.clusterW.clustering(arrDict, fluid, Pc)
+                cluster_ID, cluster, trapped = self.clusterW_ID, self.clusterW, self.trappedW
             except AssertionError:
-                self.clusterNW.clustering(arrDict, fluid, Pc)
-        except AssertionError:
-<<<<<<< HEAD
-            pass
+                cluster_ID, cluster, trapped = self.clusterNW_ID, self.clusterNW, self.trappedNW
 
-=======
-            (trapped, trappedPc, trapClust) = args
-        
-        
->>>>>>> eaead80d7bc05a5f61bb25b79abbfb878a7fa08c
+            assert not updateCluster
+            cond = mem.any()
+            cluster.connected[0] = cond
+            cluster.clustConToInlet[0] = cond
+            cluster.trappedStatus[0] = not cond
+            try:
+                ids = cluster_ID[mem][cluster_ID[mem]>=0]
+                assert not (ids==0).all()
+                mem1 = self.elementListS[mem][cluster_ID[mem]>=0]
+                mem1 = mem1[ids!=0]
+                ids = ids[ids!=0]
+                ''' ensure connected cluster is cluster 0 '''
+                cluster_ID[mem1] = 0
+                cluster.members[:, mem1] = False
+                cluster.members[0][mem1] = True
+                trapped[mem1] = False
+                ''' check which clusters are truly empty '''
+                availClust = ids[~cluster.members[ids].any(axis=1)]
+                cluster.availableID.update(availClust)
+            except AssertionError:
+                pass
+        except AttributeError:
+            pass
+        except AssertionError:
+            cluster.clustering(arrDict, Pc, cluster_ID, cluster, trapped)
+
         try:
             assert not updateConnectivity
             return
         except AssertionError:
-<<<<<<< HEAD
-            if len(connectedCluster)==1:
-                return arrDict[connectedCluster[0]]['members']
-            elif len(connectedCluster)==0:
-                return np.zeros(self.totElements, dtype=bool)
-            else:
-                return reduce(np.logical_or, (arrDict[k]['members'] for k in connectedCluster))
-=======
-            try:
-                assert fluid
-                Notdone = (self.fluid==1)
-            except AssertionError:
-                Notdone = (self.fluid==0)|self.isPolygon
+            return mem
 
-        arr = Notdone.copy()
-        Notdone[[-1, 0, i]] = True, True, False
-        arrlist = [i]
-        canAdd = Notdone.copy()
-
-        while True:
-            try:
-                j = arrlist.pop(np.argmin(self.distToBoundary[arrlist]))
-                assert j>0
-                Notdone[j] = False
-                pt = self.elem[j].neighbours
-                arrlist.extend(pt[canAdd[pt]])
-                canAdd[pt] = False
-            except AssertionError:
-                
-                Notdone[arrlist] = False
-                try:
-                    arrlist = np.array(arrlist)[trapped[arrlist]]
-                    arrl = []
-                    [arrl.extend(self.elementLists[
-                        (trapClust==k)[1:-1]]) for k in set(trapClust[arrlist])]
-                    
-                    Notdone[arrl] = False
-                except (IndexError, AssertionError):
-                    pass
-                
-                arr = (arr & ~Notdone)
-                trapped[arr] = False
-                trappedPc[arr] = 0.0
-                trapClust[arr] = 0
-                return False
-            except (IndexError, ValueError):
-                arr = (arr & ~Notdone)
-                try:
-                    assert trapped[arr].sum()==0
-                    trapped[arr] = True
-                    trappedPc[arr] = Pc
-                    trapClust[arr] = trapClust.max()+1
-                except AssertionError:
-                    trapped[arr] = True
-                    trappedPc[arr] = trappedPc[
-                        arr&(trapClust==trapClust[arr].max())][0]
-                    trapClust[arr] = trapClust[arr].max()
-                return True
-            
->>>>>>> eaead80d7bc05a5f61bb25b79abbfb878a7fa08c
-
+        
     def __getValue__(self, arrr, gL):
         row, col, data = [], [], []
         indP = self.poreList[arrr[self.poreList]]
@@ -463,17 +432,11 @@ class Computations():
             assert not overidetrapping
             apexDist[:, arrr] = initedApexDist[:, arrr]
             assert self.trappedW[arr[arrr]].sum()+self.trappedNW[arr[arrr]].sum()>0
-<<<<<<< HEAD
             arrr1 = arrr & self.trappedW[arr]
             arrr2 = arrr & ~self.trappedW[arr] & self.trappedNW[arr]
             trappedPc = np.zeros(arr.size)
             trappedPc[arrr1] = np.array(self.clusterW.pc)[self.clusterW_ID[arr[arrr1]]]
             trappedPc[arrr2] = np.array(self.clusterNW.pc)[self.clusterNW_ID[arr[arrr2]]]
-=======
-            trappedPc = self.trappedW_Pc[arr]
-            cond = (~self.trappedW[arr]) & self.trappedNW[arr] & arrr
-            trappedPc[cond] = self.trappedNW_Pc[arr[cond]]
->>>>>>> eaead80d7bc05a5f61bb25b79abbfb878a7fa08c
             cond = (self.trappedW[arr]|self.trappedNW[arr])
             part = np.clip((trappedPc*initedApexDist*np.sin(halfAng)).T[cond]/self.sigma, 
                            -0.999999, 0.999999)

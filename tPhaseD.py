@@ -21,6 +21,7 @@ class TwoPhaseDrainage(SinglePhase):
         self.fluid = np.zeros(self.totElements, dtype='int')
         self.fluid[-1] = 1   # already filled
         self.hasWFluid = (self.fluid==0)|self.isPolygon
+        self.hasWFluid[[-1,0]] = False
         self.hasNWFluid = (self.fluid==1)
         self.hasNWFluid[[-1,0]] = False
         self.trappedW = np.zeros(self.totElements, dtype='bool')
@@ -35,9 +36,6 @@ class TwoPhaseDrainage(SinglePhase):
         self.clusterNW = Cluster(self, 1)
         self.clusterW_ID = -5*np.ones(self.totElements, dtype='int')
         self.clusterNW_ID = -5*np.ones(self.totElements, dtype='int')
-        self.trapped = self.trappedW
-        self.trappedData = self.clusterW
-        self.trapClust = self.clusterW_ID
         
         self.connNW = np.zeros(self.totElements, dtype='bool')
         arrr = self.hasWFluid.copy()
@@ -49,11 +47,7 @@ class TwoPhaseDrainage(SinglePhase):
             self.do.__wettabilityDistribution__()
         self.Fd_Tr = self.do.__computeFd__(self.elemTriangle, self.halfAnglesTr)
         self.Fd_Sq = self.do.__computeFd__(self.elemSquare, self.halfAnglesSq)
-<<<<<<< HEAD
         
-=======
-    
->>>>>>> eaead80d7bc05a5f61bb25b79abbfb878a7fa08c
         self.cornExistsTr = np.zeros([self.nTriangles, 3], dtype='bool')
         self.cornExistsSq = np.zeros([self.nSquares, 4], dtype='bool')
         self.initedTr = np.zeros([self.nTriangles, 3], dtype='bool')
@@ -70,11 +64,7 @@ class TwoPhaseDrainage(SinglePhase):
         self.recPcSq = np.zeros([self.nSquares, 4])
         self.hingAngTr = np.zeros([self.nTriangles, 3])
         self.hingAngSq = np.zeros([self.nSquares, 4])
-<<<<<<< HEAD
         
-=======
-   
->>>>>>> eaead80d7bc05a5f61bb25b79abbfb878a7fa08c
         self.do.__initCornerApex__()
         self.__computePistonPc__()
         self.PcD = self.PistonPcRec.copy()
@@ -127,8 +117,7 @@ class TwoPhaseDrainage(SinglePhase):
         if self.writeData:
             self.__fileName__()
             self.__writeHeadersD__()
-        else: 
-            self.resultD_str = ""
+        else: self.resultD_str = ""
 
         self.SwTarget = max(self.finalSat, self.satW-self.dSw*0.5)
         self.PcTarget = min(self.maxPc, self.capPresMax+(
@@ -199,7 +188,7 @@ class TwoPhaseDrainage(SinglePhase):
             self.clusterNW.members[0, k] = True
             self.PistonPcRec[k] = self.centreEPOilInj[k]
             arr = self.elem[k].neighbours[self.elem[k].neighbours>0]
-            arr = arr[self.hasWFluid[arr] & (~self.trappedW[arr])]
+            arr = arr[(self.fluid[arr]==0) & (~self.trappedW[arr])]
             try:
                 assert self.isCircle[k]
                 kk = self.clusterW_ID[k]
@@ -208,7 +197,7 @@ class TwoPhaseDrainage(SinglePhase):
                 self.connW[k] = False
                 self.hasWFluid[k] = False
                 self.do.check_Trapping_Clustering(
-                    arr, self.hasWFluid.copy(), 0, self.capPresMax, True)
+                    arr.copy(), self.hasWFluid.copy(), 0, self.capPresMax, True)
             except AssertionError:
                 pass             
             self.cnt += 1
@@ -293,7 +282,7 @@ class TwoPhaseDrainage(SinglePhase):
         '''returns the minimum receding Pc for pistonlike displacement'''
         try:
             arr = self.elem[i].neighbours
-            return self.PistonPcRec[arr[(arr > 0) & (self.fluid[arr] == 1)]].min()
+            return self.PistonPcRec[arr[(arr>0) & self.hasNWFluid[arr]]].min()
         except ValueError:
             return 0
 
@@ -307,25 +296,23 @@ class TwoPhaseDrainage(SinglePhase):
             pass
 
     def __update_PcD_ToFill__(self, arr) -> None:
-        try:
-            minNeiPc = np.array([*map(lambda ar: self.__func(ar), arr)])
-            entryPc = np.maximum(0.999*minNeiPc+0.001*self.PistonPcRec[
-                arr], self.PistonPcRec[arr])
-            
-            # elements to be removed before updating PcD
-            cond1 = (entryPc != self.PcD[arr]) & (~self.NinElemList[arr])
-            [*map(lambda i: self.__func3(i), arr[cond1])]
+        minNeiPc = np.array([*map(lambda ar: self.__func(ar), arr)])
+        entryPc = np.maximum(0.999*minNeiPc+0.001*self.PistonPcRec[
+            arr], self.PistonPcRec[arr])
+        
+        ''' elements to be removed before updating PcD '''
+        cond1 = (entryPc != self.PcD[arr]) & (~self.NinElemList[arr])
+        [*map(lambda i: self.__func3(i), arr[cond1])]
 
-            # updating elements with new PcD
-            cond2 = (entryPc != self.PcD[arr])
-            self.PcD[arr[cond2]] = entryPc[cond2]
+        ''' updating elements with new PcD '''
+        cond2 = (entryPc != self.PcD[arr])
+        self.PcD[arr[cond2]] = entryPc[cond2]
 
-            # updating the ToFill elements
-            cond3 = (self.NinElemList[arr])
-            self.ElemToFill.update(arr[cond3])
-            self.NinElemList[arr[cond3]] = False
-        except:
-            pass
+        ''' updating the ToFill elements '''
+        cond3 = (self.NinElemList[arr])
+        self.ElemToFill.update(arr[cond3])
+        self.NinElemList[arr[cond3]] = False
+        
             
 
     def __CondTP_Drainage__(self):

@@ -6,13 +6,7 @@ class ClusterManipulation():
     def __init__(self):
         pass
 
-    def clustering(self, arrDict, fluid, Pc):
-        try:
-            assert fluid==0
-            cluster_ID, cluster, trapped = self.clusterW_ID, self.clusterW, self.trappedW
-        except AssertionError:
-            cluster_ID, cluster, trapped = self.clusterNW_ID, self.clusterNW, self.trappedNW
-
+    def clustering(self, arrDict, Pc, cluster_ID, cluster, trapped):
         for k in arrDict.keys():
             try:
                 assert arrDict[k]['connStatus']
@@ -23,10 +17,12 @@ class ClusterManipulation():
                 cluster_ID[members1] = 0
                 cluster.members[:, members2] = False
                 cluster.members[0][members] = True
+                trapped[members] = False
+                cluster.clustConToInlet[0] = True
+                cluster.trappedStatus[0] = False
+                ''' check which clusters are truly empty '''
                 availClust = availClust[~cluster.members[availClust].any(axis=1)]
                 cluster.availableID.update(availClust)
-                trapped[members] = arrDict[k]['trappedStatus']
-                cluster.clustConToInlet[0] = True
             except AssertionError:
                 try:
                     ct = cluster.availableID.pop(0)
@@ -60,9 +56,9 @@ class ClusterManipulation():
                 availClust = availClust[~cluster.members[availClust].any(axis=1)]
                 cluster.availableID.update(availClust)
                 cluster.trappedStatus[ct] = arrDict[k]['trappedStatus']
-                cluster.connected[ct] = arrDict[k]['connStatus']
+                cluster.connected[ct] = False
                 trapped[members] = arrDict[k]['trappedStatus']
-                cluster[ct] = {'key':ct, 'fluid':fluid}
+                cluster[ct] = {'key':ct}
                 cluster.pc[ct] = Pc
                 cluster.clustConToInlet[ct] = arrDict[k]['members'][self.conTToIn].any()
 
@@ -232,7 +228,7 @@ class ClusterObj:
     
     @property
     def connected(self):
-        return self.parent.connStatus[self.key]
+        return self.parent.connected[self.key]
     
     @property
     def members(self):
