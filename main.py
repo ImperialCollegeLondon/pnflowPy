@@ -22,7 +22,7 @@ def main():
         input_file_name = ""
 
         print("\nNetwork Model Code version 2 alpha, built: ", __DATE__, "\n")
-
+    
         if len(sys.argv) > 1:
             input_file_name = sys.argv[1]
         else:
@@ -40,7 +40,7 @@ def main():
         compWithPrevData = True
         drainPlot = False
         imbibePlot = False
-        writeData = True
+        writeData = False
         writeTrappedData = True
         fillTillNWDisconnected = True
 
@@ -82,7 +82,7 @@ def main():
                             netsim.fQ.name, names=[
                             'satW', 'qWout', 'krw', 'qNWout', 'krnw', 'capPres', 'invasions'],
                             sep=',', skiprows=18, index_col=False)
-    
+                        
                 else:
                     # Imbibition process
                     netsim.minPc = Pc
@@ -107,6 +107,8 @@ def main():
                             netsim.fQ.name, names=[
                             'satW', 'qWout', 'krw', 'qNWout', 'krnw', 'capPres', 'invasions'],
                             sep=',', skiprows=18, index_col=False)
+                        
+                    
             
             if toPlot:
                 if drainPlot:

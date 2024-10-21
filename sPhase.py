@@ -16,8 +16,8 @@ class SinglePhase(Network):
         self.gnwSPhase = self.gSP*self.mu/self.munw
         
     def __areaSP__(self):
-        self.AreaSPhase = np.zeros(self.totElements)
-        self.AreaSPhase[self.elementLists] = (
+        self.areaSPhase = np.zeros(self.totElements)
+        self.areaSPhase[self.elementLists] = (
             (self.Rarray[1:-1])**2)/(4*self.Garray[1:-1])
     
     def __gSP__(self):
@@ -32,6 +32,8 @@ class SinglePhase(Network):
 
 
     def singlephase(self):
+        print('------------------------------------------------------------------')
+        print('---------------------------Single Phase---------------------------')
         compute = Computations(self)
         gLSP = compute.computegL(self.gSP)
         
@@ -39,9 +41,11 @@ class SinglePhase(Network):
         arrr[self.P1array[(gLSP > 0.0)]] = True
         arrr[self.P2array[(gLSP > 0.0)]] = True
         arrr[self.tList[(gLSP > 0.0)]] = True
-        arrr = (arrr & self.connected & self.isinsideBox)
-    
-        conn = compute.isConnected(arrr)
+        arrr = (arrr & self.connected)
+
+        self.connW = compute.check_Trapping_Clustering(
+            self.elementListS[arrr], arrr.copy(), 0, 0, False, True)
+        conn = self.connW & self.isinsideBox
         AmatrixW, CmatrixW = compute.__getValue__(conn, gLSP)
         presSP = np.zeros(self.nPores+2)
         presSP[conn[self.poreListS]] = compute.matrixSolver(
@@ -52,10 +56,10 @@ class SinglePhase(Network):
         qp = gLSP*delSP
         
         try:
-            conTToInlet = self.conTToInlet[conn[self.conTToInlet+self.nPores]]
-            conTToOutlet = self.conTToOutlet[conn[self.conTToOutlet+self.nPores]]
-            qinto = qp[conTToInlet-1].sum()
-            qout = qp[conTToOutlet-1].sum()
+            conTToInletBdr = self._conTToInletBdr[conn[self.conTToInletBdr]]
+            conTToOutletBdr = self._conTToOutletBdr[conn[self.conTToOutletBdr]]
+            qinto = qp[conTToInletBdr-1].sum()
+            qout = qp[conTToOutletBdr-1].sum()
             assert np.isclose(qinto, qout, atol=1e-30)
             qout = (qinto+qout)/2
         except AssertionError:
@@ -74,9 +78,6 @@ class SinglePhase(Network):
         print('Absolute permeability = ', self.absPerm)
         print("Time taken: {} s \n\n".format(round(time() - start, 3)))
 
-
-print('------------------------------------------------------------------')
-print('---------------------------Single Phase---------------------------')
 
 start = time()
 if __name__ == "__main__":
