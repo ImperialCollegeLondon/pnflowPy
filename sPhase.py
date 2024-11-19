@@ -78,7 +78,6 @@ class SinglePhase(Network):
         print('Absolute permeability = ', self.absPerm)
         print("Time taken: {} s \n\n".format(round(time() - start, 3)))
 
-
 start = time()
 if __name__ == "__main__":
     SinglePhase().singlephase()

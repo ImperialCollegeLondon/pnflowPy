@@ -2,11 +2,55 @@ import numpy as np
 from sortedcontainers import SortedList
     
 
-class ClusterManipulation():
-    def __init__(self):
-        pass
+class Cluster():
+    def __init__(self, obj, fluid=1, numClusters=200):
+        self.obj = obj
+        self.fluid = fluid
+        self.keys = [0]
+        self.values = [ClusterObj(0, self, obj)]
+        self.pc = np.zeros(numClusters)
+        self.drainEvents = 0
+        self.imbEvents = 0
+        self.availableID = SortedList()
+        self.availableID.update(np.arange(1,numClusters))
+        self.members = np.zeros([numClusters, self.totElements], dtype=bool)
+        self.trappedStatus = np.zeros(numClusters, dtype=bool)
+        self.connected = np.zeros(numClusters, dtype=bool)
+        self.clustConToInlet = self.members[:, self.conTToIn].any(axis=1)
+        
+    @property
+    def size(self):
+        '''returns the number of elements in a cluster'''
+        return self.members.sum(axis=1)
+    
+    def __getattr__(self, name):
+        return getattr(self.obj, name)
+    
+    def __getitem__(self, key):
+        if key in self.keys:
+            index = self.keys.index(key)
+            return self.values[index]
+        else:
+            raise KeyError(f'Key "{key}" not found')
+    
+    def __setitem__(self, key, value):
+        if key not in self.keys:
+            self.keys.append(key)
+            self.values.append(ClusterObj(key, self, self.obj))
 
-    def clustering(self, arrDict, Pc, cluster_ID, cluster, trapped):
+    def __delitem__(self, key):
+        if key in self.keys:
+            index = self.keys.index(key)
+            #self.keys[index] = None
+            self.values[index] = None
+            self.Pc[index] = None
+        else:
+            raise KeyError(f'Key "{key}" not found')
+        
+    def items(self):
+        return zip(self.keys, self.values)
+    
+    def clustering(self, arrDict, Pc, cluster_ID, cluster, trapped, updatePcClustConToInlet):
         for k in arrDict.keys():
             try:
                 assert arrDict[k]['connStatus']
@@ -29,12 +73,15 @@ class ClusterManipulation():
                 except IndexError:
                     ''' more cluster rows need to be created '''
                     cluster.availableID.update(
-                        np.where(~cluster.members.any(axis=1))[0])                    
+                        np.where(~cluster.members.any(axis=1))[0])
+                    cluster.availableID.discard(0)           
                     try:
                         ct = cluster.availableID.pop(0)
                     except IndexError:
+                        ''' double the size of the arrays but
+                          not more than 500 new clusters at a time'''
                         ct = cluster.pc.size
-                        ct1 = min(ct, 500)  # do not create more than 500 new clusters at a time
+                        ct1 = min(ct, 500)
                         cluster.members = np.vstack(
                             (cluster.members, np.zeros([ct1,self.totElements], dtype=bool)))
                         cluster.pc = np.concatenate((cluster.pc, np.zeros(ct1)))
@@ -62,7 +109,12 @@ class ClusterManipulation():
                 cluster.pc[ct] = Pc
                 cluster.clustConToInlet[ct] = arrDict[k]['members'][self.conTToIn].any()
 
-        cluster.pc[cluster.clustConToInlet] = Pc
+        try:
+            assert updatePcClustConToInlet
+            cluster.pc[cluster.clustConToInlet] = Pc
+        except AssertionError:
+            pass
+
         return
         
 
@@ -133,15 +185,15 @@ class ClusterManipulation():
         
         def _f2(c, ar, self):
             # compute new moles, volume and pc
-            newMoles = self.clusterNW[c].moles+self.clusterNW.moles[ar].sum()
-            newVolume = self.clusterNW[c].volume+self.clusterNW.volume[ar].sum()
-            newPc = ((newMoles/self.clusterNW[c].moles)*
-                     (self.clusterNW[c].volume/newVolume)*self.clusterNW[c].pc)
-            self.clusterNW.moles[c] = newMoles
-            self.clusterNW.volume[c] = newVolume
-            self.clusterNW.pc[c] = newPc
-            self.clusterNW.members[:,ar] = False
-            self.clusterNW.members[c, ar] = True
+            newMoles = self[c].moles+self.moles[ar].sum()
+            newVolume = self[c].volume+self.volume[ar].sum()
+            newPc = ((newMoles/self[c].moles)*
+                     (self[c].volume/newVolume)*self[c].pc)
+            self.moles[c] = newMoles
+            self.volume[c] = newVolume
+            self.pc[c] = newPc
+            self.members[:,ar] = False
+            self.members[c, ar] = True
 
         while True:
             try:
@@ -158,55 +210,6 @@ class ClusterManipulation():
     
         return
     
-    
-class Cluster(ClusterManipulation):
-    def __init__(self, obj, fluid=1, numClusters=200):
-        self.obj = obj
-        self.fluid = fluid
-        self.keys = [0]
-        self.values = [ClusterObj(0, self, obj)]
-        self.pc = np.zeros(numClusters)
-        self.drainEvents = 0
-        self.imbEvents = 0
-        self.availableID = SortedList()
-        self.availableID.update(np.arange(1,numClusters))
-        self.members = np.zeros([numClusters, self.totElements], dtype=bool)
-        self.trappedStatus = np.zeros(numClusters, dtype=bool)
-        self.connected = np.zeros(numClusters, dtype=bool)
-        self.clustConToInlet = self.members[:, self.conTToIn].any(axis=1)
-        
-    @property
-    def size(self):
-        '''returns the number of elements in a cluster'''
-        return self.members.sum(axis=1)
-    
-    def __getattr__(self, name):
-        return getattr(self.obj, name)
-    
-    def __getitem__(self, key):
-        if key in self.keys:
-            index = self.keys.index(key)
-            return self.values[index]
-        else:
-            raise KeyError(f'Key "{key}" not found')
-    
-    def __setitem__(self, key, value):
-        if key not in self.keys:
-            self.keys.append(key)
-            self.values.append(ClusterObj(key, self, self.obj))
-
-    def __delitem__(self, key):
-        if key in self.keys:
-            index = self.keys.index(key)
-            #self.keys[index] = None
-            self.values[index] = None
-            self.Pc[index] = None
-        else:
-            raise KeyError(f'Key "{key}" not found')
-        
-    def items(self):
-        return zip(self.keys, self.values)
-
 
 class ClusterObj:
     def __init__(self, key, parent, obj):
@@ -244,38 +247,6 @@ class ClusterObj:
             return np.array([], dtype=int)
     
     @property
-    def pcLow(self):
-        '''returns the Pc value for imbibing the toImb element'''
-        try:
-            return self.parent.PcLow[self.key]
-        except AttributeError:
-            return -np.inf
-        
-    @property
-    def pcHigh(self):
-        '''returns the Pc value for draining the toDrain element'''
-        try:
-            return self.parent.PcHigh[self.key]
-        except AttributeError:
-            return np.inf
-    
-    @property
-    def toImbibe(self):
-        ''' returns a member of the cluster with the highest entry capillary pressure for imbibition'''
-        try:
-            return self.parent.toImbibe[self.key]
-        except AttributeError:
-            return -5
-        
-    @property
-    def toDrain(self):
-        '''returns a neighbouring element with the least entry capillary pressure  for drainage'''
-        try:
-            return self.parent.toDrain[self.key]
-        except AttributeError:
-            return -5
-    
-    @property
     def volume(self):
         '''returns the volume of a cluster'''
         try:
@@ -299,11 +270,5 @@ class ClusterObj:
     def __repr__(self):
         return self.__str__()
     
-
-def returnIndex(arr):
-    for idx, row in enumerate(arr):
-        if np.all(row == False):  # Efficiently check if all values in the row are False
-            return idx
-    return None  # If no such row exists, return None
     
 

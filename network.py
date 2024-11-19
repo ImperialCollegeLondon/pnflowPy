@@ -126,6 +126,7 @@ class Network(InputData):
         self.PTConnections = np.array([np.pad(
             subarray, (0, self.maxPoreCon - len(subarray)), 
             constant_values=-5) for subarray in self.PTConData])
+        self.PTValid = (self.PTConnections>0)
         self.TPConnections = np.zeros([self.nThroats+1, 2], dtype='int32')
         self.TPConnections[1:,0] = self.P1array
         self.TPConnections[1:,1] = self.P2array
@@ -221,8 +222,8 @@ class Network(InputData):
                 assert ppp.size>0
                 notdone[ppp] = False
                 self.connected[ppp] = True
-                ttt = self.PTConnections[ppp]
-                ttt = ttt[notdone[ttt]&(ttt>0)]
+                ttt = self.PTConnections[ppp][self.PTValid[ppp]]
+                ttt = ttt[notdone[ttt]]
                 assert ttt.size>0
                 notdone[ttt] = False
                 self.connected[ttt] = True

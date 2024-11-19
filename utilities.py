@@ -45,7 +45,7 @@ class Computations():
         return gL
  
     def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False, 
-                                  updateConnectivity=False):
+                                  updateConnectivity=False, updatePcClustConToInlet=True):
         i = 0
         arrDict = {}
         arrr = np.zeros(self.totElements, dtype='bool')
@@ -60,7 +60,6 @@ class Computations():
                 arrr[ii] = True
                 trappedStatus, connStatus = True, False
                 try:
-                    assert ii<=self.nPores
                     arrr[self.PTConData[ii]] = True
                     ii = self.elementListS[(arrr&notdone)]
                     try:
@@ -71,13 +70,15 @@ class Computations():
                         cond1, cond2 = self.toInBdr[done].any(), self.toOutBdr[done].any()
                         assert cond1 or cond2
                         trappedStatus = False
+                        #assert not quickTrapping
+
                         assert cond1 and cond2
                         connStatus = True
                         connectedCluster.append(i)
                         arrDict[i] = {'members': done, 'connStatus': connStatus, 
                                         'trappedStatus': trappedStatus}
                         continue
-                except AssertionError:
+                except (AssertionError, IndexError):
                     pass
                 while True:
                     try:
@@ -89,8 +90,8 @@ class Computations():
                         assert ii.size > 0
                         notdone[ii] = False
                         done[ii] = True
-                        tt = self.PTConnections[ii]
-                        arrr[tt[tt>0]] = True
+                        tt = self.PTConnections[ii][self.PTValid[ii]]
+                        arrr[tt] = True
                         ii = self.elementListS[(arrr&notdone)]
                         assert ii.size > 0
                         notdone[ii] = False
@@ -153,7 +154,7 @@ class Computations():
         except AttributeError:
             pass
         except AssertionError:
-            cluster.clustering(arrDict, Pc, cluster_ID, cluster, trapped)
+            cluster.clustering(arrDict, Pc, cluster_ID, cluster, trapped, updatePcClustConToInlet)
 
         try:
             assert not updateConnectivity
@@ -210,7 +211,7 @@ class Computations():
         return num/self.totVoidVolume
     
 
-    def computeFlowrate(self, gL, fluid, Pc):
+    def computeFlowrate(self, gL, fluid, Pc, vector=False):
         conn = self.connW.copy() if fluid==0 else self.connNW.copy()
         conTToIn = self.conTToIn.copy()
         arrr = np.zeros(self.totElements, dtype='bool')    
@@ -235,23 +236,25 @@ class Computations():
         qp = gL*delP
         
         try:
-            conTToInletBdr = self._conTToInletBdr[conn[self.conTToInletBdr]]
-            conTToOutletBdr = self._conTToOutletBdr[conn[self.conTToOutletBdr]]
-            qinto = qp[conTToInletBdr-1].sum()
-            qout = qp[conTToOutletBdr-1].sum()
-            assert np.isclose(qinto, qout, atol=1e-30)
-            qout = (qinto+qout)/2
+            assert not vector
+            try:
+                conTToInletBdr = self._conTToInletBdr[conn[self.conTToInletBdr]]
+                conTToOutletBdr = self._conTToOutletBdr[conn[self.conTToOutletBdr]]
+                qinto = qp[conTToInletBdr-1].sum()
+                qout = qp[conTToOutletBdr-1].sum()
+                assert np.isclose(qinto, qout, atol=1e-30)
+                qout = (qinto+qout)/2
+            except AssertionError:
+                pass
+            return qout
         except AssertionError:
-            pass
-
-        return qout
-
+            return (qp, (pres[self.P2array]<=pres[self.P1array]))
+            
     
     def computePerm(self, Pc):
         gwL = self.computegL(self.gWPhase)
         self.obj.qW = self.qW = self.computeFlowrate(gwL, 0, Pc)
         self.obj.krw = self.krw = self.qW/self.qwSPhase
-       
         try:
             assert self.fluid[self.conTToOutletBdr].sum() > 0
             gnwL = self.computegL(self.gNWPhase)

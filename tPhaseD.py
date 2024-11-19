@@ -174,6 +174,7 @@ class TwoPhaseDrainage(SinglePhase):
         self.do.__finitCornerApex__(self.capPresMax)
         print('Time spent for the drainage process: ', time() - start)        
         print('==========================================================\n\n')
+        
 
     def popUpdateOilInj(self):
         k = self.ElemToFill.pop(0)
@@ -286,15 +287,6 @@ class TwoPhaseDrainage(SinglePhase):
         except ValueError:
             return 0
 
-    
-    def __func3(self, i):
-        '''returns an element from the tofill list'''
-        try:
-            self.ElemToFill.remove(i)
-            self.NinElemList[i] = True
-        except ValueError:
-            pass
-
     def __update_PcD_ToFill__(self, arr) -> None:
         minNeiPc = np.array([*map(lambda ar: self.__func(ar), arr)])
         entryPc = np.maximum(0.999*minNeiPc+0.001*self.PistonPcRec[
@@ -302,7 +294,8 @@ class TwoPhaseDrainage(SinglePhase):
         
         ''' elements to be removed before updating PcD '''
         cond1 = (entryPc != self.PcD[arr]) & (~self.NinElemList[arr])
-        [*map(lambda i: self.__func3(i), arr[cond1])]
+        [self.ElemToFill.discard(i) for i in arr[cond1]]
+        self.NinElemList[arr[cond1]] = True
 
         ''' updating elements with new PcD '''
         cond2 = (entryPc != self.PcD[arr])
@@ -315,7 +308,7 @@ class TwoPhaseDrainage(SinglePhase):
         
             
 
-    def __CondTP_Drainage__(self):
+    def __CondTP_Drainage__(self, saveCornArea=False):
         # to suppress the FutureWarning and SettingWithCopyWarning respectively
         warnings.simplefilter(action='ignore', category=FutureWarning)
         pd.options.mode.chained_assignment = None
@@ -396,6 +389,11 @@ class TwoPhaseDrainage(SinglePhase):
 
         self._centerArea[arrr] = self.areaSPhase[arrr] - self._cornArea[arrr]
         self._centerCond[arrr] = self._centerArea[arrr]/self.areaSPhase[arrr]*self.gnwSPhase[arrr]
+
+        try:
+            assert not saveCornArea
+        except AssertionError:
+            pass
 
 
     def __fileName__(self):

@@ -148,6 +148,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         self.do.__finitCornerApex__(self.capPresMin)
         print('Time spent for the imbibition process: ', time() - start)
         print('===========================================================\n\n')
+        #from IPython import embed; embed()
     
 
     def __PImbibition__(self):
@@ -205,56 +206,69 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         self.resultI_str = self.do.writeResult(self.resultI_str, self.capPresMin)
 
 
-    def popUpdateWaterInj(self):
-        k = self.ElemToFill.pop(0)
-        capPres = self.PcI[k]
-        self.capPresMin = np.min([self.capPresMin, capPres])
-        
+    def fillWithWater(self, k):
+        self.fluid[k] = 0
         try:
-            assert not self.trappedNW[k]
-            self.fluid[k] = 0
-            self.hasNWFluid[k] = False
-            kk = self.clusterNW_ID[k]
-            self.clusterNW_ID[k] = -5
-            self.clusterNW.members[kk,k] = False
-            neigh = self.elem[k].neighbours[self.elem[k].neighbours>0]
+            assert self.hasWFluid[k]
+        except AssertionError:
             try:
-                assert self.hasWFluid[k]
-            except AssertionError:
-                try:
-                    self.hasWFluid[k] = True
-                    neighW = neigh[self.hasWFluid[neigh]]
-                    ids = self.clusterW_ID[neighW]
-                    ii = ids.min()
-                        
-                    ''' newly filled takes the properties of already filled neighbour '''
-                    self.clusterW_ID[k] = ii
-                    self.clusterW.members[ii,k] = True
-                    self.connW[k] = self.clusterW[ii].connected
-                    ids = ids[ids!=ii]                
-                    assert ids.size>0
+                neigh = self.elem[k].neighbours[self.elem[k].neighbours>0]
+                self.hasWFluid[k] = True
+                neighW = neigh[self.hasWFluid[neigh]]
+                ids = self.clusterW_ID[neighW]
+                ii = ids.min()
+                    
+                ''' newly filled takes the properties of already filled neighbour '''
+                self.clusterW_ID[k] = ii
+                self.clusterW.members[ii,k] = True
+                self.connW[k] = self.clusterW[ii].connected
+                ids = ids[ids!=ii]                
+                assert ids.size>0
 
-                    ''' need to coalesce '''
-                    mem = self.elementListS[self.clusterW.members[ids].any(axis=0)]
-                    self.clusterW.members[ii][mem] = True
-                    self.clusterW.members[ids] = False
-                    self.clusterW.availableID.update(ids)
-                    self.clusterW_ID[mem] = ii
-                except (AssertionError, ValueError):
-                    pass
-            
-            self.fillmech[k] = 1*(self.PistonPcAdv[k]==capPres)+2*(
-                self.porebodyPc[k]==capPres)+3*(self.snapoffPc[k]==capPres)
-            self.cnt += 1
-            self.invInsideBox += self.isinsideBox[k]
-            neighb = neigh[self.hasNWFluid[neigh]]
-            self.do.check_Trapping_Clustering(
-                neighb.copy(), self.hasNWFluid.copy(), 1, self.capPresMin, True)
+                ''' need to coalesce '''
+                mem = self.elementListS[self.clusterW.members[ids].any(axis=0)]
+                self.clusterW.members[ii][mem] = True
+                self.clusterW.members[ids] = False
+                self.clusterW.availableID.update(ids)
+                self.clusterW_ID[mem] = ii
+            except (AssertionError, ValueError):
+                pass
+
+    def unfillWithOil(self, k, Pc, updateCluster=False, updateConnectivity=False, 
+                      updatePcClustConToInlet=True, updatePc=True):
+        self.hasNWFluid[k] = False
+        kk = self.clusterNW_ID[k]
+        self.clusterNW_ID[k] = -5
+        self.clusterNW.members[kk,k] = False        
+        neigh = self.elem[k].neighbours[self.elem[k].neighbours>0]
+        neigh = neigh[self.hasNWFluid[neigh]]
+        self.do.check_Trapping_Clustering(
+            neigh.copy(), self.hasNWFluid.copy(), 1, Pc, 
+            updateCluster, updateConnectivity, updatePcClustConToInlet)
+        try:
+            assert updatePc
+            neighb = neigh[~self.trappedNW[neigh]]
             self.__computePc__(self.capPresMin, neighb)
         except AssertionError:
             pass
 
+    def popUpdateWaterInj(self):
+        k = self.ElemToFill.pop(0)
+        capPres = self.PcI[k]
+        self.capPresMin = np.min([self.capPresMin, capPres])
 
+        try:
+            assert not self.trappedNW[k]
+            self.fillWithWater(k)
+            self.unfillWithOil(k, self.capPresMin, True)
+            self.fillmech[k] = 1*(self.PistonPcAdv[k]==capPres)+2*(
+                self.porebodyPc[k]==capPres)+3*(self.snapoffPc[k]==capPres)
+            self.cnt += 1
+            self.invInsideBox += self.isinsideBox[k]
+        except AssertionError:
+            pass
+
+    
     def __CondTPImbibition__(self):
         # to suppress the FutureWarning and SettingWithCopyWarning respectively
         warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -276,13 +290,10 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             
             cornA, cornG = self.do.calcAreaW(
                 arrrS, self.halfAnglesSq, conAngPS, self.cornExistsSq, apexDistPS)
-            condition = (cornA>self.areaSPhase[self.elemSquare])
-            self._cornArea[self.elemSquare] = np.where(
-                condition, self._cornArea[self.elemSquare], cornA)
-            self._cornCond[self.elemSquare] = np.where(
-                condition, self._cornCond[self.elemSquare], cornG)
-            self._cornArea[self.elemSquare] = cornA
-            self._cornCond[self.elemSquare] = cornG
+            self._cornArea[self.elemSquare] = np.clip(
+                cornA, a_min=0.0, a_max=self.areaSPhase[self.elemSquare])
+            self._cornCond[self.elemSquare] = np.clip(
+                cornG, a_min=0.0, a_max=self.gwSPhase[self.elemSquare])
         except AssertionError:
             pass
 
@@ -297,11 +308,10 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             
             cornA, cornG = self.do.calcAreaW(
                 arrrT, self.halfAnglesTr, conAngPT, self.cornExistsTr, apexDistPT)
-            condition = (cornA>self.areaSPhase[self.elemTriangle])
-            self._cornArea[self.elemTriangle] = np.where(
-                condition, self._cornArea[self.elemTriangle], cornA)
-            self._cornCond[self.elemTriangle] = np.where(
-                condition, self._cornCond[self.elemTriangle], cornG)
+            self._cornArea[self.elemTriangle] = np.clip(
+                cornA, a_min=0.0, a_max=self.areaSPhase[self.elemTriangle])
+            self._cornCond[self.elemTriangle] = np.clip(
+                cornG, a_min=0.0, a_max=self.gwSPhase[self.elemTriangle])
         except AssertionError:
             pass
 
@@ -312,14 +322,6 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             self._cornCond[arrrC] = 0.0
         except  AssertionError:
             pass
-        
-        cond = (self._cornArea > self.areaSPhase)
-        self._cornArea[cond] = self.areaSPhase[cond]
-        try:
-            cond = (self._cornCond <= self.gwSPhase)
-            assert np.any(cond)
-        except AssertionError:
-            self._cornCond[cond] = self.gwSPhase[cond]
         
         self._centerArea = self.areaSPhase - self._cornArea
         self._centerCond = np.where(self.areaSPhase != 0.0, 
@@ -500,18 +502,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         self.snapoffPc[self.elemTriangle[arrrTr]] = np.max(
             [self.snapoffPc1[arrrTr], snapoffPc2], axis=0)
         
-        
-    def __removeElem(self, i):
-        try:
-            self.ElemToFill.remove(i)
-        except ValueError:
-            try:
-                m = npi.indices(self.ElemToFill, [i])[0]
-                del self.ElemToFill[m]
-            except KeyError:
-                pass
-
-
+    
     def LookupList(self, k):
         return (-round(self.PcI[k], 9), k <= self.nPores, -k)
     
@@ -519,46 +510,60 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
     def __computePc__(self, Pc, arr, update=True, trapping=True):
         entryPc = self.PistonPcAdv.copy()
         maxNeiPistonPrs = np.zeros(self.totElements)
+        _arr = arr[self.hasNWFluid[arr]] # & ~self.trappedNW[arr]]  # elements filled with nw
+        arrP = _arr[(_arr <= self.nPores)]   #pores filled with nw
+        arrT = _arr[(_arr > self.nPores)]      #throats filled with nw
+        _arrT = arrT-self.nPores
 
-        cond = (self.fluid == 1)  # elements filled with nw
-        arrP = arr[cond[arr] & (arr <= self.nPores)]   #pores filled with nw
+        ''' identify pores where porebody filling could occur '''
         arr1 = np.sum(self.fluid[self.PTConnections[arrP]]==0, axis=1,
-                      where=(self.PTConnections[arrP]>0))
-        
+                      where=self.PTValid[arrP])
         cond1 = (arr1 > 0) & (self.thetaAdvAng[arrP] < np.pi/2.0) #pores for porebody filling
         self.__porebodyFilling__(arrP[cond1])
         entryPc[arrP[cond1]] = self.porebodyPc[arrP[cond1]]
         
-        arrr = arr[cond[arr]]
-        arrrP = arrr[arrr<=self.nPores]
-        arrrT = arrr[arrr>self.nPores]-self.nPores
-        maxNeiPistonPrs[arrrP] = np.max(
-            self.PistonPcAdv[self.PTConnections[arrrP]], axis=1, initial=0.0,
-            where=((self.PTConnections[arrrP]>0)&(self.fluid[self.PTConnections[arrrP]]==0)))
-        maxNeiPistonPrs[arrrT+self.nPores] = np.max(
-            self.PistonPcAdv[self.TPConnections[arrrT]], axis=1, initial=0.0,
-            where=((self.fluid[self.TPConnections[arrrT]]==0)))
-
+        ''' update the piston-like entry Pc '''      
+        maxNeiPistonPrs[arrP] = np.max(
+            self.PistonPcAdv[self.PTConnections[arrP]], axis=1, initial=0.0,
+            where=(self.PTValid[arrP]&(self.fluid[self.PTConnections[arrP]]==0)))
+        maxNeiPistonPrs[arrT] = np.max(
+            self.PistonPcAdv[self.TPConnections[_arrT]], axis=1, initial=0.0,
+            where=((self.fluid[self.TPConnections[_arrT]]==0)))
         condb = (maxNeiPistonPrs > 0.0)
         entryPc[condb] = np.minimum(0.999*maxNeiPistonPrs[
             condb]+0.001*entryPc[condb], entryPc[condb])
         
         ''' Snap-off filling '''
         self.__updateSnapoffPc__(Pc)
-        conda = (maxNeiPistonPrs > 0.0) & (entryPc > self.snapoffPc)
+        conda = (maxNeiPistonPrs > 0.0) & (entryPc>self.snapoffPc)
         entryPc[~conda&(self.Garray<self.bndG2)] = self.snapoffPc[~conda&(self.Garray<self.bndG2)]
+
+        ''' update the toFill list '''
         try:
             assert update
+            ''' update PcI '''
             diff = (self.PcI[arr] != entryPc[arr])
-            [*map(lambda i: self.__removeElem(i), arr[diff])]
+            [self.ElemToFill.discard(i) for i in arr[diff]]
             self.PcI[arr[diff]] = entryPc[arr[diff]]
-            
-            ''' update the filling list '''
-            self.ElemToFill.update(arr[diff])
+
+            ''' add to the toFill list '''
+            arrr = np.zeros(self.totElements, dtype=bool)
+            arrr[_arr[self.hasWFluid[_arr]]] = True
+            _arr = _arr[~self.hasWFluid[_arr]]
+            arrP = _arr[_arr <= self.nPores]
+            arrT = _arr[_arr > self.nPores]
+            _arrT = arrT-self.nPores
+            arrrP = (self.hasWFluid[self.PTConnections[arrP]]&self.PTValid[arrP]).any(axis=1)
+            arrrT = (self.hasWFluid[self.TPConnections[_arrT]]|
+                     (self.TPConnections[_arrT]==-1)).any(axis=1)
+            arrr[arrP] = arrrP
+            arrr[arrT] = arrrT
+            arrr[self.ElemToFill] = False
+            self.ElemToFill.update(self.elementListS[arrr])
         except AssertionError:
             self.PcI[arr] = entryPc[arr]
-            arr = self.__func4(arr, trapping)
-            self.ElemToFill.update(arr)
+            _arr = self.__func4(_arr, trapping)
+            self.ElemToFill.update(_arr)
         
 
     def __func4(self, arr, trapping=True):
@@ -567,7 +572,6 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         (ii) the wetting fluid in the corners or a neighbouring element;
         (iii) the wetting fluid is not trapped.'''
 
-        arr = arr[(self.fluid[arr]==1)]
         arrr = np.zeros(self.totElements, dtype=bool)
         arrr[arr[self.hasWFluid[arr]]] = True
         arr = arr[~self.hasWFluid[arr]]
@@ -578,23 +582,22 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
 
         try:
             assert trapping
-            conP = (self.hasWFluid[arrPT])&(~self.trappedW[arrPT])&(arrPT>0)
+            conP = (self.hasWFluid[arrPT])&(~self.trappedW[arrPT])&self.PTValid[arrP]
             conT = (arrTP==-1) | ((self.hasWFluid[arrTP])&(~self.trappedW[arrTP])&(arrTP>0))
         except AssertionError:
-            conP = (self.hasWFluid[arrPT])&(arrPT>0)
+            conP = (self.hasWFluid[arrPT])&self.PTValid[arrP]
             conT = (arrTP==-1) | ((self.hasWFluid[arrTP])&(arrTP>0))
         
         arrr[arrP[conP.any(axis=1)]] = True
         arrr[arrT[conT.any(axis=1)]] = True
         return self.elementListS[arrr]
 
-
     
     def __porebodyFilling__(self, ind):
         try:
             assert ind.size > 0
             arr = self.PTConnections[ind]
-            cond = (self.fluid[arr]==1)&(arr>0)    
+            cond = (self.fluid[arr]==1)&self.PTValid[ind]  
             arr2 = np.sort(np.where(cond, self.randNum[arr], np.nan))[:, :6]
             cond1 = (arr2!=np.nanmax(arr2, axis=1)[:,np.newaxis])&(~np.isnan(arr2))
             sumrand = np.sum(arr2, where=cond1, axis=1)*15000

@@ -55,7 +55,7 @@ class SecDrainage(TwoPhaseDrainage):
             self.PistonPcRec[k] = self.centreEPOilInj[k]
             arr = self.elem[k].neighbours[self.elem[k].neighbours>0]
             arr0 = arr[(self.fluid[arr]==0) & (~self.trappedW[arr])]
-            arr1 = arr[self.hasNWFluid[arr]] #&(self.clusterNW_ID[arr]>0)]
+            arr1 = arr[self.hasNWFluid[arr]]
             try:
                 assert self.isCircle[k]
                 kk = self.clusterW_ID[k]
@@ -102,7 +102,8 @@ class SecDrainage(TwoPhaseDrainage):
         
         temp = np.zeros(self.totElements, dtype='bool')
         while True:
-            temp[self.PTConnections[arr[arr<=self.nPores]]] = True
+            arrP = arr[arr<=self.nPores]
+            temp[self.PTConnections[arrP][self.PTValid[arrP]]] = True
             temp[self.TPConnections[arr[arr>self.nPores]-self.nPores]] = True
             temp[done] = False
             elemToFill[temp & fluid0] = True
