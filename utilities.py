@@ -47,9 +47,11 @@ class Computations():
     def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False, 
                                   updateConnectivity=False, updatePcClustConToInlet=True):
         i = 0
+        members = np.zeros(self.totElements, dtype='bool')
         arrDict = {}
         arrr = np.zeros(self.totElements, dtype='bool')
         connectedCluster = []
+        
         while True:
             try:
                 i += 1
@@ -111,6 +113,7 @@ class Computations():
                         arrDict[i] = {'members': done, 'connStatus': connStatus, 
                                         'trappedStatus': trappedStatus}
                         arr = arr[notdone[arr]]
+                        members[done] = True
                         break
             except IndexError:
                 break
@@ -133,7 +136,7 @@ class Computations():
             assert not updateCluster
             cond = mem.any()
             cluster.connected[0] = cond
-            cluster.clustConToInlet[0] = cond
+            cluster.clustConToExit[0] = cond
             cluster.trappedStatus[0] = not cond
             try:
                 ids = cluster_ID[mem][cluster_ID[mem]>=0]
@@ -154,7 +157,19 @@ class Computations():
         except AttributeError:
             pass
         except AssertionError:
-            cluster.clustering(arrDict, Pc, cluster_ID, cluster, trapped, updatePcClustConToInlet)
+            
+            #from IPython import embed; embed()
+            members = self.elementListS[members]
+            cluster.clustering(members, arrDict, Pc, cluster_ID, cluster, 
+                                trapped, updatePcClustConToInlet)
+            # cluster.clustering1(arrDict, Pc, cluster_ID, cluster, 
+            #                 trapped, updatePcClustConToInlet)
+            
+            # if fluid==1 and Pc<30300:
+            #     print('@@@:  ', cluster[0].members.size, cluster[0].members)
+            #     from IPython import embed; embed()
+            
+        
 
         try:
             assert not updateConnectivity
@@ -230,10 +245,14 @@ class Computations():
         Amatrix, Cmatrix = self.__getValue__(conn, gL)
            
         pres = np.zeros(self.nPores+2)
-        pres[conn[self.poreListS]] = self.matrixSolver(Amatrix, Cmatrix)
-        pres[self.isOnInletBdr[self.poreListS]] = 1.0       
-        delP = np.abs(pres[self.P1array] - pres[self.P2array])
-        qp = gL*delP
+        try:
+            assert conn.sum()>0
+            pres[conn[self.poreListS]] = self.matrixSolver(Amatrix, Cmatrix)
+            pres[self.isOnInletBdr[self.poreListS]] = 1.0       
+            delP = np.abs(pres[self.P1array] - pres[self.P2array])
+            qp = gL*delP
+        except AssertionError:
+            qp = np.zeros(self.nThroats)
         
         try:
             assert not vector
@@ -486,7 +505,6 @@ class Computations():
         cond3 = cond3a & arrr
         try:
             assert cond3.sum() > 0
-            #if not self.is_oil_inj and 10761 in arr: print('  cond3  ')
             conAng[cond3] = np.minimum(np.pi, (self.thetaRecAng[arr]*cond3)[cond3])
             apexDist[cond3] = (self.sigma/Pc*np.cos(
                 conAng+halfAng)/np.sin(halfAng))[cond3]

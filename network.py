@@ -3,7 +3,7 @@ import numpy as np
 from math import sqrt, pi
 from time import time
 
-from inputData import InputData
+from pnflowPy.inputData import InputData
 
 class Network(InputData):
 
@@ -142,6 +142,7 @@ class Network(InputData):
                                      (self.P1array == self.pout_) | (self.P2array == self.pout_)]
 
         self.isTriangle = (self.Garray <= self.bndG1)
+        self.isTriangle[[-1,0]] = False
         self.elemTriangle = self.elementLists[self.isTriangle[1:-1]]
         self.isCircle = (self.Garray >= self.bndG2)
         self.elemCircle = self.elementLists[self.isCircle[1:-1]]

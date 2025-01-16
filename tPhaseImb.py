@@ -11,11 +11,12 @@ from utilities import Computations
 from tPhaseD import TwoPhaseDrainage
 
 class TwoPhaseImbibition(TwoPhaseDrainage):
-    def __new__(cls, obj, writeData=False, writeTrappedData=False, trapping=True):
+    def __new__(cls, obj, writeData, writeTrappedData):
         obj.__class__ = TwoPhaseImbibition
         return obj
     
-    def __init__(self, obj, writeData=False, writeTrappedData=False, trapping=True):
+    def __init__(
+            self, obj, writeData=False, writeTrappedData=False):
         if not hasattr(self, 'do'):     
             self.do = Computations(self)
         
@@ -41,7 +42,7 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         self.__computePistonPc__()
         self.randNum = self.rand(self.totElements)
         self.__computeSnapoffPc__()
-        self.__computePc__(self.maxPc, self.elementLists.copy(), False, trapping=trapping)
+        self.__computePc__(self.maxPc, self.elementLists.copy(), False, True)
                
         self._areaWP = self._cornArea.copy()
         self._areaNWP = self._centerArea.copy()
@@ -139,16 +140,18 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             if self.writeTrappedData:
                 self.__writeTrappedData__()
 
+        #print('::::£££$$$%%%%****^&&&&')
+        #from IPython import embed; embed()
         print("Number of trapped elements: W: {}  NW:{}".format(
             self.trappedW.sum(), self.trappedNW.sum()))
         print('No of W clusters: {}, No of NW clusters: {}'.format(
             np.count_nonzero(self.clusterW.size),
             np.count_nonzero(self.clusterNW.size)))
-        self.is_oil_inj = True
-        self.do.__finitCornerApex__(self.capPresMin)
+        #self.is_oil_inj = True
+        #self.do.__finitCornerApex__(self.capPresMin)
         print('Time spent for the imbibition process: ', time() - start)
         print('===========================================================\n\n')
-        #from IPython import embed; embed()
+        
     
 
     def __PImbibition__(self):
@@ -204,7 +207,8 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
         self.satW = self.do.Saturation(self.areaWPhase, self.areaSPhase)
         self.do.computePerm(self.capPresMin)
         self.resultI_str = self.do.writeResult(self.resultI_str, self.capPresMin)
-
+        # print(self.trappedW[7674], self.trappedNW[7674], self.cornerArea[7674],
+        #            self.areaWPhase[7674], self.clusterNW.pc[self.clusterNW_ID[7674]])
 
     def fillWithWater(self, k):
         self.fluid[k] = 0
@@ -229,6 +233,9 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
                 mem = self.elementListS[self.clusterW.members[ids].any(axis=0)]
                 self.clusterW.members[ii][mem] = True
                 self.clusterW.members[ids] = False
+                # if any(np.intersect1d(self.clusterW.availableID, ids)):
+                #     print(f'%%there is {np.intersect1d(self.clusterW.availableID, ids)} in the availableID already!!!')
+                #     from IPython import embed; embed()
                 self.clusterW.availableID.update(ids)
                 self.clusterW_ID[mem] = ii
             except (AssertionError, ValueError):
@@ -269,15 +276,21 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             pass
 
     
-    def __CondTPImbibition__(self):
+    def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True):
         # to suppress the FutureWarning and SettingWithCopyWarning respectively
         warnings.simplefilter(action='ignore', category=FutureWarning)
         pd.options.mode.chained_assignment = None
 
-        arrrS = np.ones(self.elemSquare.size, dtype='bool')
-        arrrT = np.ones(self.elemTriangle.size, dtype='bool')
-        arrrC = np.ones(self.elemCircle.size, dtype='bool')
-        Pc = np.full(self.totElements, self.capPresMin)
+        try:
+            assert arrr is None
+            arrrS = np.ones(self.elemSquare.size, dtype='bool')
+            arrrT = np.ones(self.elemTriangle.size, dtype='bool')
+            arrrC = np.ones(self.elemCircle.size, dtype='bool')
+            Pc = np.full(self.totElements, self.capPresMin)
+        except AssertionError:
+            arrrS = arrr[self.isSquare]
+            arrrT = arrr[self.isTriangle]
+            arrrC = arrr[self.isCircle]
 
         try:
             curConAng = self.contactAng.copy()
@@ -290,10 +303,10 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             
             cornA, cornG = self.do.calcAreaW(
                 arrrS, self.halfAnglesSq, conAngPS, self.cornExistsSq, apexDistPS)
-            self._cornArea[self.elemSquare] = np.clip(
-                cornA, a_min=0.0, a_max=self.areaSPhase[self.elemSquare])
-            self._cornCond[self.elemSquare] = np.clip(
-                cornG, a_min=0.0, a_max=self.gwSPhase[self.elemSquare])
+            elemSquare = self.elemSquare[arrrS]
+            cond = (cornA<self.areaSPhase[elemSquare])
+            self._cornArea[elemSquare[cond]] = cornA[cond]
+            self._cornCond[elemSquare[cond]] = cornG[cond]
         except AssertionError:
             pass
 
@@ -308,13 +321,13 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             
             cornA, cornG = self.do.calcAreaW(
                 arrrT, self.halfAnglesTr, conAngPT, self.cornExistsTr, apexDistPT)
-            self._cornArea[self.elemTriangle] = np.clip(
-                cornA, a_min=0.0, a_max=self.areaSPhase[self.elemTriangle])
-            self._cornCond[self.elemTriangle] = np.clip(
-                cornG, a_min=0.0, a_max=self.gwSPhase[self.elemTriangle])
+            elemTriangle = self.elemTriangle[arrrT]
+            cond = (cornA<self.areaSPhase[elemTriangle])
+            self._cornArea[elemTriangle[cond]] = cornA[cond]
+            self._cornCond[elemTriangle[cond]] = cornG[cond]
         except AssertionError:
             pass
-
+    
         try:
             assert arrrC.size>0
             arrrC = self.elemCircle[arrrC]
@@ -322,14 +335,17 @@ class TwoPhaseImbibition(TwoPhaseDrainage):
             self._cornCond[arrrC] = 0.0
         except  AssertionError:
             pass
-        
+
         self._centerArea = self.areaSPhase - self._cornArea
-        self._centerCond = np.where(self.areaSPhase != 0.0, 
-                                    self._centerArea/self.areaSPhase*self.gnwSPhase,
-                                    0.0)
-        
-        self.__updateAreaCond__()
-        
+        self._centerCond = np.where(
+            self.areaSPhase != 0.0, 
+            self._centerArea/self.areaSPhase*self.gnwSPhase, 0.0)
+        try:
+            assert updateArea      
+            self.__updateAreaCond__()
+        except AssertionError:
+            pass
+
 
     def __updateAreaCond__(self):
         arrr = (~self.trappedNW)

@@ -13,128 +13,139 @@ class Cluster():
         self.imbEvents = 0
         self.availableID = SortedList()
         self.availableID.update(np.arange(1,numClusters))
-        self.members = np.zeros([numClusters, self.totElements], dtype=bool)
+        self.members = np.zeros([numClusters, obj.totElements], dtype=bool)
         self.trappedStatus = np.zeros(numClusters, dtype=bool)
         self.connected = np.zeros(numClusters, dtype=bool)
-        self.clustConToInlet = self.members[:, self.conTToIn].any(axis=1)
+        self.clustConToExit = self.members[:, obj.conTToExit].any(axis=1)
         
     @property
     def size(self):
         '''returns the number of elements in a cluster'''
         return self.members.sum(axis=1)
     
-    def __getattr__(self, name):
-        return getattr(self.obj, name)
-    
     def __getitem__(self, key):
         if key in self.keys:
             index = self.keys.index(key)
             return self.values[index]
         else:
-            raise KeyError(f'Key "{key}" not found')
+            self[key] = {'key': key}
     
     def __setitem__(self, key, value):
         if key not in self.keys:
             self.keys.append(key)
             self.values.append(ClusterObj(key, self, self.obj))
+            if self[key].key!=self.keys[key]:
+                print('index is not same as key, there is a problem here!!!')
+                from IPython import embed; embed()
 
     def __delitem__(self, key):
         if key in self.keys:
             index = self.keys.index(key)
-            #self.keys[index] = None
-            self.values[index] = None
-            self.Pc[index] = None
+            self.pc[index] = 0.0
+            if hasattr(self, 'moles'):
+                self.moles[index] = 0.0
+            if hasattr(self, 'volume'):
+                self.volume[index] = 0.0     
         else:
             raise KeyError(f'Key "{key}" not found')
         
     def items(self):
         return zip(self.keys, self.values)
     
-    def clustering(self, arrDict, Pc, cluster_ID, cluster, trapped, updatePcClustConToInlet):
-        for k in arrDict.keys():
+    def clustering(self, mem, arrDict, Pc, cluster_ID, cluster, trapped,        
+                   updatePcClustConToInlet):
+        oldkeys = cluster_ID[mem]
+        oldMem = mem[oldkeys>=0]
+        oldkeys = oldkeys[oldkeys>=0]
+        cluster.members[oldkeys, oldMem] = False #uncluster previously clustered elements
+        arrDictKeys = np.fromiter(arrDict.keys(), dtype=int)
+        try:
+            oldkeys = oldkeys[oldkeys>0]
+            assert oldkeys.size==0
+        except AssertionError:
+            oldkeys = np.array(list(set(oldkeys)))
+            availClust = oldkeys[~cluster.members[oldkeys].any(axis=1)] #newly available clusters
+            cluster.availableID.update(np.setdiff1d(availClust,self.availableID))
+            try:
+                assert oldkeys.size<=1
+            except:
+                arrDictKeys = arrDictKeys[oldkeys.argsort()]
+       
+        for k in arrDictKeys:
+            members = self.obj.elementListS[arrDict[k]['members']]
             try:
                 assert arrDict[k]['connStatus']
-                members = self.elementListS[arrDict[k]['members']]
-                members1 = members[(cluster_ID[members]!=0)]
-                members2 = members[(cluster_ID[members]>0)]
-                availClust = np.array(list(set(cluster_ID[members2])), dtype=int)
-                cluster_ID[members1] = 0
-                cluster.members[:, members2] = False
+                cluster_ID[members] = 0
                 cluster.members[0][members] = True
                 trapped[members] = False
-                cluster.clustConToInlet[0] = True
+                cluster.clustConToExit[0] = True
                 cluster.trappedStatus[0] = False
-                ''' check which clusters are truly empty '''
-                availClust = availClust[~cluster.members[availClust].any(axis=1)]
-                cluster.availableID.update(availClust)
             except AssertionError:
                 try:
                     ct = cluster.availableID.pop(0)
                 except IndexError:
-                    ''' more cluster rows need to be created '''
-                    cluster.availableID.update(
-                        np.where(~cluster.members.any(axis=1))[0])
-                    cluster.availableID.discard(0)           
-                    try:
-                        ct = cluster.availableID.pop(0)
-                    except IndexError:
-                        ''' double the size of the arrays but
-                          not more than 500 new clusters at a time'''
-                        ct = cluster.pc.size
-                        ct1 = min(ct, 500)
-                        cluster.members = np.vstack(
-                            (cluster.members, np.zeros([ct1,self.totElements], dtype=bool)))
-                        cluster.pc = np.concatenate((cluster.pc, np.zeros(ct1)))
-                        cluster.trappedStatus = np.concatenate(
-                            (cluster.trappedStatus, np.zeros(ct1, dtype=bool)))
-                        cluster.connected = np.concatenate(
-                            (cluster.connected, np.zeros(ct1, dtype=bool)))
-                        cluster.clustConToInlet = np.concatenate(
-                            (cluster.clustConToInlet, np.zeros(ct1, dtype=bool)))
-                        cluster.availableID.update(np.arange(ct+1, ct+ct1))
-    
-                members = self.elementListS[arrDict[k]['members']]
-                members1 = members[(cluster_ID[members]>=0)]
-                members2 = members1[(cluster_ID[members1]>0)&(cluster_ID[members1]!=ct)]
-                availClust = np.array(list(set(cluster_ID[members2])), dtype=int)
+                    # double previous size/add 500 new clusters
+                    oldSize = cluster.pc.size
+                    addSize = min(oldSize, 500)
+                    self.resizeClusters(addSize, cluster)
+                    id = np.setdiff1d(np.where(cluster.size==0)[0], cluster.availableID)
+                    cluster.availableID.update(id[id>0])
+                    ct = cluster.availableID.pop(0)
+
                 cluster_ID[members] = ct
-                cluster.members[:, members1] = False
                 cluster.members[ct][members] = True
-                availClust = availClust[~cluster.members[availClust].any(axis=1)]
-                cluster.availableID.update(availClust)
+                cluster[ct] = {'key':ct, }
+                cluster.pc[ct] = Pc
+                trapped[members] = arrDict[k]['trappedStatus']
+                cluster.clustConToExit[ct] = arrDict[k]['members'][self.obj.conTToExit].any()
                 cluster.trappedStatus[ct] = arrDict[k]['trappedStatus']
                 cluster.connected[ct] = False
-                trapped[members] = arrDict[k]['trappedStatus']
-                cluster[ct] = {'key':ct}
-                cluster.pc[ct] = Pc
-                cluster.clustConToInlet[ct] = arrDict[k]['members'][self.conTToIn].any()
-
+                
         try:
             assert updatePcClustConToInlet
-            cluster.pc[cluster.clustConToInlet] = Pc
+            cluster.pc[cluster.clustConToExit] = Pc
         except AssertionError:
             pass
 
         return
-        
+    
+    def resizeClusters(self, size, cluster):
+        cluster.members = np.vstack(
+            (cluster.members, np.zeros([size,self.obj.totElements], dtype=bool)))
+        cluster.pc = np.concatenate((cluster.pc, np.zeros(size)))
+        cluster.trappedStatus = np.concatenate(
+            (cluster.trappedStatus, np.zeros(size, dtype=bool)))
+        cluster.connected = np.concatenate(
+            (cluster.connected, np.zeros(size, dtype=bool)))
+        cluster.clustConToExit = np.concatenate(
+            (cluster.clustConToExit, np.zeros(size, dtype=bool)))
+        for c in np.arange(len(self.keys), self.pc.size):
+            self[c] = {'key': c}
+            
+            
 
     def updateNeighMatrix(self, cond=None):
         '''This updates the neighMatrix!!! might be later revised!!!'''
         try:
             assert cond is None
-            cond = np.ones(self.nThroats, dtype=bool)
-            P1array = self.P1array
-            P2array = self.P2array
-            tList = self.tList 
+            cond = np.ones(self.obj.nThroats, dtype=bool)
         except AssertionError:
-            P1array = self.P1array[cond]
-            P2array = self.P2array[cond]
-            tList = self.tList[cond]
-
-        def _f():
-            clustP1 = self.clusterNW_ID[P1array]
-            clustP2 = self.clusterNW_ID[P2array]
-            clustT = self.clusterNW_ID[tList]
+            pass
+        
+        try:
+            assert self.fluid==1
+            cluster_ID = self.obj.clusterNW_ID
+        except AssertionError:
+            cluster_ID = self.obj.clusterW_ID
+       
+        def _f(cond):
+            P1array = self.obj.P1array[cond]
+            P2array = self.obj.P2array[cond]
+            tList = self.obj.tList[cond]
+        
+            clustP1 = cluster_ID[P1array]
+            clustP2 = cluster_ID[P2array]
+            clustT = cluster_ID[tList]
 
             condT = (clustT>=0)
             condP1 = (P1array>0) & (clustP1!=clustT)
@@ -148,66 +159,87 @@ class Cluster():
             condP1_P1_T = condP1_P1 & condT # P1 and T should coalesce together
             condP2_P2_T = condP2 & condT & (clustP2>=0) # P2 and T should coalesce together
             return (clustP1, clustP2, clustT, condP1_P1, condP1_T, 
-                    condP2_P2, condP2_T, condP1_P1_T, condP2_P2_T)
+                    condP2_P2, condP2_T, condP1_P1_T, condP2_P2_T, P1array, P2array, tList)
         
         while True:
             try:
                 (clustP1, clustP2, clustT, condP1_P1, condP1_T, 
-                condP2_P2, condP2_T, condP1_P1_T, condP2_P2_T) = _f()
+                condP2_P2, condP2_T, condP1_P1_T, condP2_P2_T,
+                P1array, P2array, tList) = _f(cond)
                 assert condP1_P1_T.any() or condP2_P2_T.any()
                 arr = np.sort(np.concatenate((
                     np.array([clustP1[condP1_P1_T], clustT[condP1_P1_T]]).T,
                     np.array([clustP2[condP2_P2_T], clustT[condP2_P2_T]]).T)), axis=1)
                 arr = list(set(map(tuple, arr)))
-                self.coalesceClusters(arr)
+                
+                _arr = np.unique(arr)
+                neigh = self.neighbours[_arr].any(axis=0)
+                print(arr)
+                self.coalesceClusters(arr, cluster_ID)
+                neigh = neigh|self.members[_arr].any(axis=0)
+                cond = cond | neigh[self.obj.tList]
             except AssertionError:
+                keysToUpdate = np.unique(cluster_ID[self.obj.tList[cond]])
+                keysToUpdate = keysToUpdate[keysToUpdate>=0]
                 break
+
         clust = np.concatenate((clustP1[condP1_P1],  clustT[condP1_T], 
                                 clustP2[condP2_P2], clustT[condP2_T]))
         neigh = np.concatenate((tList[condP1_P1],  P1array[condP1_T], 
                                 tList[condP2_P2],  P2array[condP2_T]))
-        
-        self.neighbours[clust] = False
+
+        self.neighbours[keysToUpdate] = False
         self.neighbours[clust, neigh] = True
 
 
-    def coalesceClusters(self, arr):
+    def coalesceClusters(self, arr, cluster_ID):
         ''' coalesce clusters together '''
-        arr = np.array([*map(np.array, arr)])
+        arr = [*map(np.array, arr)]
         values, counts = np.unique(arr, return_counts=True)
-        c = values[np.argmax(counts)]
-       
-        def _f1(ar, c, self):
-            ar = np.array(ar)
-            kk = ar[ar!=c][0]
-            self.clusterNW_ID[self.clusterNW_ID==kk] = c
-            return kk
         
-        def _f2(c, ar, self):
+        def _f1(c, ar):
             # compute new moles, volume and pc
-            newMoles = self[c].moles+self.moles[ar].sum()
-            newVolume = self[c].volume+self.volume[ar].sum()
-            newPc = ((newMoles/self[c].moles)*
-                     (self[c].volume/newVolume)*self[c].pc)
-            self.moles[c] = newMoles
-            self.volume[c] = newVolume
-            self.pc[c] = newPc
-            self.members[:,ar] = False
-            self.members[c, ar] = True
+            term1 = self.volume[ar]/self.moles[ar]
+            self.pc[c] = (self.pc[ar]*term1).sum()/term1.sum()
+            self.moles[c] = self.moles[ar].sum()
+            self.totalVolume[c] = self.totalVolume[ar].sum()
+        
+            _mem = self.members[ar].any(axis=0)
+            mem = self.obj.elementListS[_mem]
+            mem1 = mem[cluster_ID[mem]!=c]
+            clustID = cluster_ID[mem1]
+            cluster_ID[mem1] = c
+            self.members[clustID, mem1] = False
+            self.members[c, mem1] = True
+
+            _f2(c, _mem, self.pc, self.obj)
+            vol = (1-self.obj.cornerArea[mem]/self.obj.areaSPhase[mem])*self.obj.volarray[mem]
+            self.volume[c] = vol.sum()
+
+        def _f2(key, arr, newPc, other): 
+            # compute the corner areas at the new pc and restore back the trapped status
+            oldWStatus, oldNWStatus = other.trappedW[arr], other.trappedNW[arr]
+            other.trappedW[arr], other.trappedNW[arr] = False, True
+            oldPc = self.pc[key]
+            self.pc[key] = newPc[key]
+            pc = newPc[other.clusterNW_ID]
+            other.__CondTPImbibition__(arr, pc, False)
+            other.trappedW[arr], other.trappedNW[arr] = oldWStatus, oldNWStatus
+            self.pc[key] = oldPc
 
         while True:
             try:
-                arrC = []
-                [arrC.append(_f1(ar,c,self)) for ar in arr if c in ar]
-                cond = ~(arr==c).any(axis=1)
-                arr = arr[cond]
-                _f2(c, arrC, self)
-                assert arr.size>0
-                values, counts = np.unique(arr, return_counts=True)
                 c = values[np.argmax(counts)]
-            except AssertionError:
+                arrC = [ar[ar!=c][0] for ar in arr if c in ar]
+                self.neighbours[arrC] = False
+                arrC1 = arrC.copy()
+                arrC.append(c)
+                _f1(c, arrC)
+                for c1 in arrC1: del self[c1]
+                arr = [ar for ar in arr if c not in ar]
+                values, counts = np.unique(arr, return_counts=True)
+            except ValueError:
                 break
-    
         return
     
 
@@ -253,7 +285,7 @@ class ClusterObj:
             return self.parent.volume[self.key]
         except AttributeError:
             #return (self.obj.volarray[self.members]*self.parent.satList[self.members]).sum()
-            return (self.obj.volarray[self.members]).sum()
+            return (self.parent.volarray[self.members]).sum()
     
     @property
     def moles(self):
