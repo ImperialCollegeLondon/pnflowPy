@@ -59,7 +59,7 @@ def imbibition(self):
     start = time()
     print('----------------------------------------------------------------------------------')
     print('---------------------------------Two Phase Imbibition Cycle {}---------------------'.format(self.cycle))
-
+    
     if self.writeData:
         self.__fileName__()
         self.__writeHeadersI__()

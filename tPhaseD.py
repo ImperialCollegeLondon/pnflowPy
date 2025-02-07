@@ -5,9 +5,12 @@ from time import time
 import numpy as np
 import pandas as pd
 from sortedcontainers import SortedList
+from functools import partial
+
 from clustering import Cluster
 import utilities as do
-from functools import partial
+import pnflowPy.SecondaryDrainage as secDrain
+
 
 class TwoPhaseDrainage:
     def __init__(self, obj, writeData=False, writeTrappedData=False):
@@ -69,7 +72,6 @@ def initialize(self):
     do.__initCornerApex__(self)
     __computePistonPc__(self)
     self.PcD[:] = self.PistonPcRec
-    self.PcI = np.zeros(self.totElements)
     self.centreEPOilInj = np.zeros(self.totElements)
     self.centreEPOilInj[self.elementLists] = 2*self.sigma*np.cos(
         self.thetaRecAng[self.elementLists])/self.Rarray[self.elementLists]
@@ -92,14 +94,17 @@ def LookupList(self, k):
     return (self.PcD[k], k > self.nPores, -k)
 
 def drainage(self):
+    global popUpdateOilInj
     start = time()
     print('---------------------------------------------------------------------------')
     print('-------------------------Two Phase Drainage Cycle {}------------------------'.format(self.cycle))
 
     if self.writeData:
-        self.__fileName__()
-        self.__writeHeadersD__()
+        __fileName__(self)
+        __writeHeadersD__(self)
     else: self.resultD_str = ""
+    if self.cycle>1:
+        popUpdateOilInj = secDrain.popUpdateOilInj
 
     self.SwTarget = max(self.finalSat, self.satW-self.dSw*0.5)
     self.PcTarget = min(self.maxPc, self.capPresMax+(
