@@ -1,6 +1,6 @@
 import numpy as np
 from sortedcontainers import SortedList
-    
+import pnflowPy.tPhaseImb as tPhaseImb
 
 class Cluster():
     def __init__(self, obj, fluid=1, numClusters=200):
@@ -34,10 +34,7 @@ class Cluster():
         if key not in self.keys:
             self.keys.append(key)
             self.values.append(ClusterObj(key, self, self.obj))
-            if self[key].key!=self.keys[key]:
-                print('index is not same as key, there is a problem here!!!')
-                from IPython import embed; embed()
-
+            
     def __delitem__(self, key):
         if key in self.keys:
             index = self.keys.index(key)
@@ -123,7 +120,6 @@ class Cluster():
             self[c] = {'key': c}
             
             
-
     def updateNeighMatrix(self, cond=None):
         '''This updates the neighMatrix!!! might be later revised!!!'''
         try:
@@ -174,7 +170,7 @@ class Cluster():
                 
                 _arr = np.unique(arr)
                 neigh = self.neighbours[_arr].any(axis=0)
-                print(arr)
+                print('coalesced elements: ', arr)
                 self.coalesceClusters(arr, cluster_ID)
                 neigh = neigh|self.members[_arr].any(axis=0)
                 cond = cond | neigh[self.obj.tList]
@@ -223,7 +219,7 @@ class Cluster():
             oldPc = self.pc[key]
             self.pc[key] = newPc[key]
             pc = newPc[other.clusterNW_ID]
-            other.__CondTPImbibition__(arr, pc, False)
+            tPhaseImb.__CondTPImbibition__(other, arr, pc, False)
             other.trappedW[arr], other.trappedNW[arr] = oldWStatus, oldNWStatus
             self.pc[key] = oldPc
 

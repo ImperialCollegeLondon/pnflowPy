@@ -171,6 +171,9 @@ class Network(InputData):
         self.elem[[0, -1]] = Outlet(self), Inlet(self)
         self.elem[1:-1] = [Element(self, i) for i in range(1,self.totElements-1)]
 
+        self.PcD = np.zeros(self.totElements)
+        self.PcI = np.zeros(self.totElements)
+
     def __isinsideBox__(self):
         self.isinsideBox = np.zeros(self.totElements, dtype='bool')
         self.isinsideBox[self.poreList] = (self.x_array[1:-1] >= self.xstart) & (
