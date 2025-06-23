@@ -6,7 +6,7 @@ class Cluster():
     def __init__(self, obj, fluid=1, numClusters=200):
         self.obj = obj
         self.fluid = fluid
-        self.keys = [0]
+        self.keys = [0]*numClusters
         self.values = [ClusterObj(0, self, obj)]
         self.pc = np.zeros(numClusters)
         self.drainEvents = 0
@@ -32,7 +32,10 @@ class Cluster():
     
     def __setitem__(self, key, value):
         if key not in self.keys:
-            self.keys.append(key)
+            try:
+                self.keys[key] = key
+            except IndexError:
+                self.keys.append(key)
             self.values.append(ClusterObj(key, self, self.obj))
             
     def __delitem__(self, key):
@@ -64,9 +67,10 @@ class Cluster():
             availClust = oldkeys[~cluster.members[oldkeys].any(axis=1)] #newly available clusters
             cluster.availableID.update(np.setdiff1d(availClust,self.availableID))
             try:
-                assert oldkeys.size<=1
-            except:
-                arrDictKeys = arrDictKeys[oldkeys.argsort()]
+                assert arrDictKeys.size>1
+                arrDictKeys = arrDictKeys[arrDictKeys.argsort()]
+            except AssertionError:
+                pass                
        
         for k in arrDictKeys:
             members = self.obj.elementListS[arrDict[k]['members']]
@@ -77,13 +81,14 @@ class Cluster():
                 trapped[members] = False
                 cluster.clustConToExit[0] = True
                 cluster.trappedStatus[0] = False
+                cluster.connected[0] = True
             except AssertionError:
                 try:
                     ct = cluster.availableID.pop(0)
                 except IndexError:
                     # double previous size/add 500 new clusters
                     oldSize = cluster.pc.size
-                    addSize = min(oldSize, 500)
+                    addSize = min(oldSize, 200)
                     self.resizeClusters(addSize, cluster)
                     id = np.setdiff1d(np.where(cluster.size==0)[0], cluster.availableID)
                     cluster.availableID.update(id[id>0])
@@ -120,24 +125,24 @@ class Cluster():
             self[c] = {'key': c}
             
             
-    def updateNeighMatrix(self, cond=None):
+    def updateNeighMatrix(self, other, cond=None):
         '''This updates the neighMatrix!!! might be later revised!!!'''
         try:
             assert cond is None
-            cond = np.ones(self.obj.nThroats, dtype=bool)
+            cond = np.ones(other.nThroats, dtype=bool)
         except AssertionError:
             pass
-        
+
         try:
             assert self.fluid==1
-            cluster_ID = self.obj.clusterNW_ID
+            cluster_ID = other.clusterNW_ID
         except AssertionError:
-            cluster_ID = self.obj.clusterW_ID
+            cluster_ID = other.clusterW_ID
        
         def _f(cond):
-            P1array = self.obj.P1array[cond]
-            P2array = self.obj.P2array[cond]
-            tList = self.obj.tList[cond]
+            P1array = other.P1array[cond]
+            P2array = other.P2array[cond]
+            tList = other.tList[cond]
         
             clustP1 = cluster_ID[P1array]
             clustP2 = cluster_ID[P2array]
@@ -157,6 +162,10 @@ class Cluster():
             return (clustP1, clustP2, clustT, condP1_P1, condP1_T, 
                     condP2_P2, condP2_T, condP1_P1_T, condP2_P2_T, P1array, P2array, tList)
         
+        # if (cond[[6401, 6428, 6559, 6672, 6728, 6860, 7129]].all() #\
+        #     and (cond.sum()==7)):
+        #     print('Condition met for debugging')
+        #     from IPython import embed; embed()
         while True:
             try:
                 (clustP1, clustP2, clustT, condP1_P1, condP1_T, 
@@ -170,12 +179,12 @@ class Cluster():
                 
                 _arr = np.unique(arr)
                 neigh = self.neighbours[_arr].any(axis=0)
-                print('coalesced elements: ', arr)
-                self.coalesceClusters(arr, cluster_ID)
+                self.coalesceClusters(arr, cluster_ID, other)
+                    
                 neigh = neigh|self.members[_arr].any(axis=0)
-                cond = cond | neigh[self.obj.tList]
+                cond = cond | neigh[other.tList]
             except AssertionError:
-                keysToUpdate = np.unique(cluster_ID[self.obj.tList[cond]])
+                keysToUpdate = np.unique(cluster_ID[other.tList[cond]])
                 keysToUpdate = keysToUpdate[keysToUpdate>=0]
                 break
 
@@ -187,55 +196,68 @@ class Cluster():
         self.neighbours[keysToUpdate] = False
         self.neighbours[clust, neigh] = True
 
+        return
 
-    def coalesceClusters(self, arr, cluster_ID):
+
+    def coalesceClusters(self, arr, cluster_ID, other):
         ''' coalesce clusters together '''
         arr = [*map(np.array, arr)]
         values, counts = np.unique(arr, return_counts=True)
         
-        def _f1(c, ar):
+        def _f1(c, ar, other):
             # compute new moles, volume and pc
-            term1 = self.volume[ar]/self.moles[ar]
-            self.pc[c] = (self.pc[ar]*term1).sum()/term1.sum()
-            self.moles[c] = self.moles[ar].sum()
-            self.totalVolume[c] = self.totalVolume[ar].sum()
-        
+            print(f'coalesced clusters: {ar}')
+            #ar = ar[self.moles[ar]>0.0]
             _mem = self.members[ar].any(axis=0)
-            mem = self.obj.elementListS[_mem]
+            mem = other.elementListS[_mem]
+            if _mem[other.conTToIn].any() and _mem[other.conTToOut].any():
+                c=0
+                ar = ar[ar!=0]
+                self.moles[c] += self.moles[ar].sum()
+                self.volume[c] += self.volume[ar].sum()
+            else:
+                self.moles[c] = self.moles[ar].sum()
+                self.volume[c] = self.volume[ar].sum()
+            
+            pc = np.append(self.pc[c], self.pc[ar])
+            try:
+                self.pc[c] = pc[pc>other.Pc].min()
+            except ValueError:
+                self.pc[c] = other.Pc
+           
             mem1 = mem[cluster_ID[mem]!=c]
             clustID = cluster_ID[mem1]
             cluster_ID[mem1] = c
             self.members[clustID, mem1] = False
             self.members[c, mem1] = True
+            return c
+        
 
-            _f2(c, _mem, self.pc, self.obj)
-            vol = (1-self.obj.cornerArea[mem]/self.obj.areaSPhase[mem])*self.obj.volarray[mem]
-            self.volume[c] = vol.sum()
-
-        def _f2(key, arr, newPc, other): 
-            # compute the corner areas at the new pc and restore back the trapped status
-            oldWStatus, oldNWStatus = other.trappedW[arr], other.trappedNW[arr]
-            other.trappedW[arr], other.trappedNW[arr] = False, True
-            oldPc = self.pc[key]
-            self.pc[key] = newPc[key]
-            pc = newPc[other.clusterNW_ID]
-            tPhaseImb.__CondTPImbibition__(other, arr, pc, False)
-            other.trappedW[arr], other.trappedNW[arr] = oldWStatus, oldNWStatus
-            self.pc[key] = oldPc
-
+        # try:
+        #     if (arr==np.array([np.array([31, 188]), np.array([186, 188])])).all():
+        #         print('Condition met for debugging')
+        #        
+        # except:
+        #     pass
+        #print('Im in coalesceClusters')
+        #from IPython import embed; embed()
+       
         while True:
             try:
                 c = values[np.argmax(counts)]
                 arrC = [ar[ar!=c][0] for ar in arr if c in ar]
                 self.neighbours[arrC] = False
-                arrC1 = arrC.copy()
                 arrC.append(c)
-                _f1(c, arrC)
-                for c1 in arrC1: del self[c1]
+                c1 = _f1(c, np.array(arrC), other)
+                if c1 in arrC: arrC.remove(c1)
+                for c2 in arrC: del self[c2]
                 arr = [ar for ar in arr if c not in ar]
                 values, counts = np.unique(arr, return_counts=True)
             except ValueError:
                 break
+            # if c==1994:
+            #     print('waitttt!!!')
+            #     from IPython import embed; embed()
         return
     
 
@@ -280,7 +302,6 @@ class ClusterObj:
         try:
             return self.parent.volume[self.key]
         except AttributeError:
-            #return (self.obj.volarray[self.members]*self.parent.satList[self.members]).sum()
             return (self.parent.volarray[self.members]).sum()
     
     @property

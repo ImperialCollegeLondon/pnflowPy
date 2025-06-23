@@ -1,46 +1,62 @@
 import numpy as np
 from sortedcontainers import SortedList
+from functools import partial
 
-from tPhaseD import TwoPhaseDrainage
-from tPhaseImb import TwoPhaseImbibition
+import utilities as do
+import tPhaseD
+import tPhaseImb
 
-class SecDrainage(TwoPhaseDrainage):
-    def __new__(cls, obj, writeData=False, writeTrappedData=True):
-        obj.__class__ = SecDrainage
-        return obj
-    
+class SecDrainage:
     def __init__(self, obj, writeData=False, writeTrappedData=True):
+        obj.writeData = writeData
+        obj.writeTrappedData = writeTrappedData
+        tPhaseD.popUpdateOilInj = self.popUpdateOilInj
+
+    @staticmethod
+    def initialize(self):
         self.fluid[[-1, 0]] = 1, 0
         self.capPresMax = self.capPresMin
         self.is_oil_inj = True
         self.contactAng, self.thetaRecAng, self.thetaAdvAng = self.prop_drainage.values()
 
-        self.do.__initCornerApex__()
-        self.Fd_Tr = self.do.__computeFd__(self.elemTriangle, self.halfAnglesTr)
-        self.Fd_Sq = self.do.__computeFd__(self.elemSquare, self.halfAnglesSq)
-        self.__computePistonPc__()
+        do.__initCornerApex__(self)
+        self.Fd_Tr = do.__computeFd__(self, self.elemTriangle, self.halfAnglesTr)
+        self.Fd_Sq = do.__computeFd__(self, self.elemSquare, self.halfAnglesSq)
+        tPhaseD.__computePistonPc__(self)
         self.centreEPOilInj[self.elementLists] = 2*self.sigma*np.cos(
-           self.thetaRecAng[self.elementLists])/self.Rarray[self.elementLists]
+            self.thetaRecAng[self.elementLists])/self.Rarray[self.elementLists]
         self.PcD[:] = self.PistonPcRec
         self.PistonPcRec[self.fluid==1] = self.centreEPOilInj[self.fluid==1]
-        self.ElemToFill = SortedList(key=lambda i: self.LookupList(i))
+        self.ElemToFill = SortedList(key=partial(tPhaseD.LookupList, self))
         self.NinElemList[:] = True
         self.prevFilled = (self.fluid==1)
-        self.populateToFill(self.conTToIn.copy())
+        populateToFill(self, self.conTToIn.copy())
+
+        # self._cornArea = self._areaWP.view()
+        # self._centerArea = self._areaNWP.view()
+        # self._cornCond = self._condWP.view()
+        # self._centerCond = self._condNWP.view()
+        # self.areaWPhase = self._cornArea.view()
+        # self.areaNWPhase = self._centerArea.view()
+        # self.gWPhase = self._cornCond.view()
+        # self.gNWPhase = self._centerCond.view()   
 
         self._cornArea = self._areaWP.copy()
         self._centerArea = self._areaNWP.copy()
         self._cornCond = self._condWP.copy()
         self._centerCond = self._condNWP.copy()
-       
+        self.areaWPhase = self._cornArea.view()
+        self.areaNWPhase = self._centerArea.view()
+        self.gWPhase = self._cornCond.view()
+        self.gNWPhase = self._centerCond.view()     
         self.cycle += 1
-        self.writeData = writeData
-        if self.writeData: self.__fileName__()
+        
+        if self.writeData: tPhaseD.__fileName__(self)
         self.primary = False
-        self.writeTrappedData = writeTrappedData
         self.totNumFill = 0
         
     def popUpdateOilInj(self):
+
         k = self.ElemToFill.pop(0)
         capPres = self.PcD[k]
         self.capPresMax = np.max([self.capPresMax, capPres])
@@ -63,8 +79,8 @@ class SecDrainage(TwoPhaseDrainage):
                 self.clusterW.members[kk,k] = False
                 self.connW[k] = False
                 self.hasWFluid[k] = False
-                self.do.check_Trapping_Clustering(
-                    arr0.copy(), self.hasWFluid.copy(), 0, self.capPresMax, True)
+                do.check_Trapping_Clustering(
+                    self, arr0.copy(), self.hasWFluid.copy(), 0, self.capPresMax, True)
             except AssertionError:
                 pass
             try:
@@ -80,9 +96,9 @@ class SecDrainage(TwoPhaseDrainage):
                 self.clusterNW.members[0, mem] = True
                 self.clusterNW.availableID.update(ids)
                 self.trappedNW[mem] = False
-                self.populateToFill(mem)
+                populateToFill(self, mem)
             except AssertionError:
-                self.__update_PcD_ToFill__(arr0)
+                tPhaseD.__update_PcD_ToFill__(self, arr0)
             
             self.cnt += 1
             self.invInsideBox += self.isinsideBox[k]
@@ -90,59 +106,65 @@ class SecDrainage(TwoPhaseDrainage):
             pass
 
 
-    def populateToFill(self, arr):
-        done = np.zeros(self.totElements, dtype='bool')
-        elemToFill = np.zeros(self.totElements, dtype='bool')
-        fluid0 = (self.fluid==0)
-        fluid1 = (self.fluid==1)
-        done[arr] = True
-        done[[-1,0]] = True
-        elemToFill[arr[fluid0[arr]]] = True
-        arr = arr[fluid1[arr]]
-        
-        temp = np.zeros(self.totElements, dtype='bool')
-        while True:
-            arrP = arr[arr<=self.nPores]
-            temp[self.PTConnections[arrP][self.PTValid[arrP]]] = True
-            temp[self.TPConnections[arr[arr>self.nPores]-self.nPores]] = True
-            temp[done] = False
-            elemToFill[temp & fluid0] = True
-            arr = self.elementListS[(temp & fluid1)]
-            if not any(arr):
-                break            
-            done[temp] = True
-
-        self.__update_PcD_ToFill__(self.elementListS[elemToFill])
-
-
+def populateToFill(self, arr):
+    done = np.zeros(self.totElements, dtype='bool')
+    elemToFill = np.zeros(self.totElements, dtype='bool')
+    fluid0 = (self.fluid==0)
+    fluid1 = (self.fluid==1)
+    done[arr] = True
+    done[[-1,0]] = True
+    elemToFill[arr[fluid0[arr]]] = True
+    arr = arr[fluid1[arr]]
     
+    temp = np.zeros(self.totElements, dtype='bool')
+    while True:
+        arrP = arr[arr<=self.nPores]
+        temp[self.PTConnections[arrP][self.PTValid[arrP]]] = True
+        temp[self.TPConnections[arr[arr>self.nPores]-self.nPores]] = True
+        temp[done] = False
+        elemToFill[temp & fluid0] = True
+        arr = self.elementListS[(temp & fluid1)]
+        if not any(arr):
+            break            
+        done[temp] = True
 
-class SecImbibition(TwoPhaseImbibition):
-    def __new__(cls, obj, writeData=False, writeTrappedData=True):
-        obj.__class__ = SecImbibition
-        return obj
-    
-    def __init__(self, obj, writeData=False, writeTrappedData=True):    
-        self.fluid[[-1, 0]] = 0, 1  
-        self.ElemToFill = SortedList(key=lambda i: self.LookupList(i))
+    tPhaseD.__update_PcD_ToFill__(self, self.elementListS[elemToFill])
+
+
+class SecImbibition:
+    def __init__(self, obj, writeData=False, writeTrappedData=True):
+        obj.writeData = writeData
+        obj.writeTrappedData = writeTrappedData
+
+
+    #@staticmethod
+    def initialize(self):   
+        self.fluid[[-1, 0]] = 0, 1
+        lookup_func = partial(tPhaseImb.LookupList, PcI=self.PcI, nPores=self.nPores)
+        self.ElemToFill = SortedList(key=lookup_func)
         self.capPresMin = self.maxPc
         
         self.contactAng, self.thetaRecAng, self.thetaAdvAng = self.prop_imbibition.values()
         self.is_oil_inj = False
 
-        self.do.__initCornerApex__()
-        self.__computePistonPc__()
-        self.__computePc__(self.maxPc, self.elementLists, update=False)
+        do.__initCornerApex__(self)
+        tPhaseImb.__computePistonPc__(self)
+        tPhaseImb.__computePc__(self, self.maxPc, self.elementLists.copy(), update=False)
 
-        self._areaWP = self._cornArea.copy()
-        self._areaNWP = self._centerArea.copy()
-        self._condWP = self._cornCond.copy()
-        self._condNWP = self._centerCond.copy()
+        self._areaWP = self.areaWPhase.copy()
+        self._areaNWP = self.areaNWPhase.copy()
+        self._condWP = self.gWPhase.copy()
+        self._condNWP = self.gNWPhase.copy()
+        self.areaWPhase = self._areaWP.view()
+        self.areaNWPhase = self._areaNWP.view()
+        self.gWPhase = self._condWP.view()
+        self.gNWPhase = self._condNWP.view()
 
-        self.writeData = writeData
-        if self.writeData: self.__fileName__()
+        if self.writeData: tPhaseImb.__fileName__(self)
         self.primary = False
-        self.writeTrappedData = writeTrappedData
+
         
+
+
 
 

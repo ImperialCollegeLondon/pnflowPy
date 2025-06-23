@@ -39,21 +39,29 @@ def initialize(self):
     lookup_func = partial(LookupList, PcI=self.PcI, nPores=self.nPores)
     self.ElemToFill = SortedList(key=lookup_func)
     __computePc__(self, self.maxPc, self.elementLists.copy(), False, True)
+
+    self._cornArea = self._areaWP.copy()
+    self._centerArea = self._areaNWP.copy()
+    self._cornCond = self._condWP.copy()
+    self._centerCond = self._condNWP.copy()
             
-    self._areaWP = self._cornArea.copy()
-    self._areaNWP = self._centerArea.copy()
-    self._condWP = self._cornCond.copy()
-    self._condNWP = self._centerCond.copy()
+    # self._areaWP = self._cornArea.copy()
+    # self._areaNWP = self._centerArea.copy()
+    # self._condWP = self._cornCond.copy()
+    # self._condNWP = self._centerCond.copy()
     
-    #self.trappedPc = self.trappedNW_Pc.view()
-    self.areaWPhase = self._areaWP.view()
-    self.areaNWPhase = self._areaNWP.view()
-    self.gWPhase = self._condWP.view()
-    self.gNWPhase = self._condNWP.view()
-    self.cornerArea = self._cornArea.view()
-    self.centerArea = self._centerArea.view()
-    self.cornerCond = self._cornCond.view()
-    self.centerCond = self._centerCond.view()
+    # self.areaWPhase = self._areaWP.view()
+    # self.areaNWPhase = self._areaNWP.view()
+    # self.gWPhase = self._condWP.view()
+    # self.gNWPhase = self._condNWP.view()
+    # self.cornerArea = self._cornArea.view()
+    # self.centerArea = self._centerArea.view()
+    # self.cornerCond = self._cornCond.view()
+    # self.centerCond = self._centerCond.view()
+
+    self.specialPcD = np.zeros(self.totElements)
+    self.maxCornerArea = np.zeros(self.totElements)
+    self.maxCornerCond = np.zeros(self.totElements)
 
 def imbibition(self):
     start = time()
@@ -61,8 +69,8 @@ def imbibition(self):
     print('---------------------------------Two Phase Imbibition Cycle {}---------------------'.format(self.cycle))
     
     if self.writeData:
-        self.__fileName__()
-        self.__writeHeadersI__()
+        __fileName__(self)
+        __writeHeadersI__(self)
     else: 
         self.resultI_str = ""
         self.totNumFill = 0
@@ -74,7 +82,7 @@ def imbibition(self):
     self.fillTarget = max(self.m_minNumFillings, int(
         self.m_initStepSize*(self.totElements)*(
             self.satW-self.SwTarget)))
-
+    
     while self.filling:
         __PImbibition__(self)
         if (self.PcTarget < self.minPc+0.001) or (
@@ -93,7 +101,6 @@ def imbibition(self):
                 self.satW = do.Saturation(self, self.areaWPhase, self.areaSPhase)
                 do.computePerm(self, self.capPresMin)
                 self.resultI_str = do.writeResult(self, self.resultI_str, self.capPresMin)
-                
             break
 
         self.PcTarget = max(self.minPc+1e-7, self.PcTarget-(
@@ -106,7 +113,7 @@ def imbibition(self):
         with open(self.file_name, 'a') as fQ:
             fQ.write(self.resultI_str)
         if self.writeTrappedData:
-            self.__writeTrappedData__()
+            __writeTrappedData__(self)
 
     print("Number of trapped elements: W: {}  NW:{}".format(
         self.trappedW.sum(), self.trappedNW.sum()))
@@ -116,7 +123,7 @@ def imbibition(self):
     #self.is_oil_inj = True
     #self.do.__finitCornerApex__(self.capPresMin)
     print('Time spent for the imbibition process: ', time() - start)
-    print('===========================================================\n\n')    
+    print('===========================================================\n\n')
 
 
 def __PImbibition__(self):
@@ -137,6 +144,9 @@ def __PImbibition__(self):
                     try:
                         assert (self.clusterNW.members[0][self.conTToIn].any() and 
                                 self.clusterNW.members[0][self.conTToOutletBdr].any())
+                        # if self.PcTarget<79951:
+                        #     print('222222222222222222222222222')
+                        #     from IPython import embed; embed()
                         popUpdateWaterInj(self)
                     except AssertionError:
                         self.filling = False
@@ -148,6 +158,8 @@ def __PImbibition__(self):
             self.capPresMin = self.PcTarget
         except IndexError:
             self.capPresMin = min(self.capPresMin, self.PcTarget)
+            print('11111111111111111111111111111')
+            from IPython import embed; embed()
         except AssertionError:
             pass
 
@@ -185,7 +197,7 @@ def fillWithWater(self, k):
             neighW = neigh[self.hasWFluid[neigh]]
             ids = self.clusterW_ID[neighW]
             ii = ids.min()
-                
+
             ''' newly filled takes the properties of already filled neighbour '''
             self.clusterW_ID[k] = ii
             self.clusterW.members[ii,k] = True
@@ -203,11 +215,12 @@ def fillWithWater(self, k):
             pass
 
 def unfillWithOil(self, k, Pc, updateCluster=False, updateConnectivity=False, 
-                    updatePcClustConToInlet=True, updatePc=True):
+                    updatePcClustConToInlet=True, updatePc=True, adjustPc=False):
+    
     self.hasNWFluid[k] = False
     kk = self.clusterNW_ID[k]
     self.clusterNW_ID[k] = -5
-    self.clusterNW.members[kk,k] = False        
+    self.clusterNW.members[kk,k] = False
     neigh = self.elem[k].neighbours[self.elem[k].neighbours>0]
     neigh = neigh[self.hasNWFluid[neigh]]
     do.check_Trapping_Clustering(
@@ -220,38 +233,44 @@ def unfillWithOil(self, k, Pc, updateCluster=False, updateConnectivity=False,
     except AssertionError:
         pass
 
+
 def popUpdateWaterInj(self):
     k = self.ElemToFill.pop(0)
     capPres = self.PcI[k]
     self.capPresMin = np.min([self.capPresMin, capPres])
-
     try:
         assert not self.trappedNW[k]
         fillWithWater(self, k)
         unfillWithOil(self, k, self.capPresMin, True)
+        self.specialPcD[k] = self.capPresMin
         self.fillmech[k] = 1*(self.PistonPcAdv[k]==capPres)+2*(
             self.porebodyPc[k]==capPres)+3*(self.snapoffPc[k]==capPres)
         self.cnt += 1
         self.invInsideBox += self.isinsideBox[k]
     except AssertionError:
         pass
+    
 
-
-def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True):
+def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True, overrideTrapping=False):
     # to suppress the FutureWarning and SettingWithCopyWarning respectively
     warnings.simplefilter(action='ignore', category=FutureWarning)
     pd.options.mode.chained_assignment = None
 
     try:
         assert arrr is None
-        arrrS = np.ones(self.elemSquare.size, dtype='bool')
-        arrrT = np.ones(self.elemTriangle.size, dtype='bool')
-        arrrC = np.ones(self.elemCircle.size, dtype='bool')
+        arrr = np.ones(self.totElements, dtype=bool)
+    except AssertionError:
+        pass
+    
+    arrrS = arrr[self.isSquare]
+    arrrT = arrr[self.isTriangle]
+    arrrC = arrr[self.isCircle]
+
+    try:
+        assert Pc is None
         Pc = np.full(self.totElements, self.capPresMin)
     except AssertionError:
-        arrrS = arrr[self.isSquare]
-        arrrT = arrr[self.isTriangle]
-        arrrC = arrr[self.isCircle]
+        pass
 
     try:
         curConAng = self.contactAng.copy()
@@ -264,10 +283,18 @@ def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True):
         
         cornA, cornG = do.calcAreaW(
             self, arrrS, self.halfAnglesSq, conAngPS, self.cornExistsSq, apexDistPS)
+        
         elemSquare = self.elemSquare[arrrS]
         cond = (cornA<self.areaSPhase[elemSquare])
+        self.maxCornerArea[elemSquare[cond]] = np.maximum(
+            self.maxCornerArea[elemSquare[cond]], cornA[cond])
         self._cornArea[elemSquare[cond]] = cornA[cond]
+        self._cornArea[elemSquare[~cond]] = self.maxCornerArea[elemSquare[~cond]]
+
+        self.maxCornerCond[elemSquare[cond]] = np.maximum(
+            self.maxCornerCond[elemSquare[cond]], cornG[cond])
         self._cornCond[elemSquare[cond]] = cornG[cond]
+        self._cornCond[elemSquare[~cond]] = self.maxCornerCond[elemSquare[~cond]]
     except AssertionError:
         pass
 
@@ -282,10 +309,18 @@ def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True):
         
         cornA, cornG = do.calcAreaW(
             self, arrrT, self.halfAnglesTr, conAngPT, self.cornExistsTr, apexDistPT)
+   
         elemTriangle = self.elemTriangle[arrrT]
         cond = (cornA<self.areaSPhase[elemTriangle])
+        self.maxCornerArea[elemTriangle[cond]] = np.maximum(
+            self.maxCornerArea[elemTriangle[cond]], cornA[cond])
         self._cornArea[elemTriangle[cond]] = cornA[cond]
+        self._cornArea[elemTriangle[~cond]] = self.maxCornerArea[elemTriangle[~cond]]
+
+        self.maxCornerCond[elemTriangle[cond]] = np.maximum(
+            self.maxCornerCond[elemTriangle[cond]], cornG[cond])
         self._cornCond[elemTriangle[cond]] = cornG[cond]
+        self._cornCond[elemTriangle[~cond]] = self.maxCornerCond[elemTriangle[~cond]]
     except AssertionError:
         pass
 
@@ -303,13 +338,17 @@ def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True):
         self._centerArea/self.areaSPhase*self.gnwSPhase, 0.0)
     try:
         assert updateArea      
-        __updateAreaCond__(self)
+        __updateAreaCond__(self, arrr, overrideTrapping)
     except AssertionError:
         pass
 
 
-def __updateAreaCond__(self):
-    arrr = (~self.trappedNW)
+def __updateAreaCond__(self, arrr, overrideTrapping):
+    try:
+        assert not overrideTrapping
+        arrr = (arrr & ~self.trappedNW)
+    except AssertionError:
+        pass
 
     try:
         cond2 = arrr & (self.fluid == 0)
@@ -642,7 +681,7 @@ def __writeTrappedData__(self):
         
 
         
-        
+
         
         
 

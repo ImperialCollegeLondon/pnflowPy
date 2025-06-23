@@ -9,7 +9,6 @@ from functools import partial
 
 from clustering import Cluster
 import utilities as do
-import pnflowPy.SecondaryDrainage as secDrain
 
 
 class TwoPhaseDrainage:
@@ -27,14 +26,15 @@ def initialize(self):
     self.trappedW = np.zeros(self.totElements, dtype='bool')
     self.trappedNW = np.zeros(self.totElements, dtype='bool')
     
-    self._cornArea = self.areaSPhase.copy()
-    self._centerArea = np.zeros(self.totElements) 
-    self._cornCond = self.gwSPhase.copy()
-    self._centerCond = np.zeros(self.totElements)
-    self.areaWPhase = self._cornArea.view()
-    self.areaNWPhase = self._centerArea.view()
-    self.gWPhase = self._cornCond.view()
-    self.gNWPhase = self._centerCond.view()
+    self._areaWP = self._cornArea = self.areaSPhase.copy()
+    self._areaNWP = self._centerArea = np.zeros(self.totElements) 
+    self._condWP = self._cornCond = self.gwSPhase.copy()
+    self._condNWP = self._centerCond = np.zeros(self.totElements)
+
+    self.areaWPhase = self._areaWP.view()
+    self.areaNWPhase = self._areaNWP.view()
+    self.gWPhase = self._condWP.view()
+    self.gNWPhase = self._condNWP.view()
     
     self.clusterW = Cluster(self, 0)
     self.clusterNW = Cluster(self, 1)
@@ -89,12 +89,12 @@ def initialize(self):
     self.qW, self.qNW = self.qwSPhase, 0.0
     self.krw, self.krnw = 1.0, 0.0
     self.totNumFill = 0
+
     
 def LookupList(self, k):
     return (self.PcD[k], k > self.nPores, -k)
 
 def drainage(self):
-    global popUpdateOilInj
     start = time()
     print('---------------------------------------------------------------------------')
     print('-------------------------Two Phase Drainage Cycle {}------------------------'.format(self.cycle))
@@ -103,8 +103,6 @@ def drainage(self):
         __fileName__(self)
         __writeHeadersD__(self)
     else: self.resultD_str = ""
-    if self.cycle>1:
-        popUpdateOilInj = secDrain.popUpdateOilInj
 
     self.SwTarget = max(self.finalSat, self.satW-self.dSw*0.5)
     self.PcTarget = min(self.maxPc, self.capPresMax+(
@@ -148,7 +146,7 @@ def drainage(self):
         with open(self.file_name, 'a') as fQ:
             fQ.write(self.resultD_str)
         if self.writeTrappedData:
-            self.__writeTrappedData__()
+            __writeTrappedData__(self)
 
     self.maxPc = self.capPresMax
     self.rpd = self.sigma/self.maxPc
@@ -161,6 +159,16 @@ def drainage(self):
     do.__finitCornerApex__(self, self.capPresMax)
     print('Time spent for the drainage process: ', time() - start)        
     print('==========================================================\n\n')
+
+    import dill
+    MEMORY_DIR = f"./drainage_result_{self.title}"
+    os.makedirs(MEMORY_DIR, exist_ok=True)
+    with open(os.path.join(MEMORY_DIR, f"drainage.pkl"),"wb") as f:
+        dill.dump(self, f)
+
+    # print('Im done with drainage!!!')
+    # from IPython import embed; embed()####
+    
 
 def popUpdateOilInj(self):
     k = self.ElemToFill.pop(0)
@@ -294,7 +302,7 @@ def __update_PcD_ToFill__(self, arr) -> None:
     
         
 
-def __CondTP_Drainage__(self, saveCornArea=False):
+def __CondTP_Drainage__(self):
     # to suppress the FutureWarning and SettingWithCopyWarning respectively
     warnings.simplefilter(action='ignore', category=FutureWarning)
     pd.options.mode.chained_assignment = None
@@ -376,10 +384,7 @@ def __CondTP_Drainage__(self, saveCornArea=False):
     self._centerArea[arrr] = self.areaSPhase[arrr] - self._cornArea[arrr]
     self._centerCond[arrr] = self._centerArea[arrr]/self.areaSPhase[arrr]*self.gnwSPhase[arrr]
 
-    try:
-        assert not saveCornArea
-    except AssertionError:
-        pass
+    
 
 
 def __fileName__(self):
