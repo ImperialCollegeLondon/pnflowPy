@@ -1,0 +1,8 @@
+# Ignore these files types
+*.csv
+*.dat
+*.pyc
+*.pkl
+
+
+

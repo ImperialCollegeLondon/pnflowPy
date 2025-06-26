@@ -2,13 +2,17 @@ from datetime import date
 import sys
 import os
 import pandas as pd
+import dill
 
 from inputData import InputData
 from network import Network
-from sPhase import SinglePhase
-from tPhaseD import TwoPhaseDrainage
+import sPhase
+import tPhaseD
+import tPhaseImb
+import utilities as do
+from tPhaseD import TwoPhaseDrainage as PDrainage
 from SecondaryProcesses import SecDrainage, SecImbibition
-from tPhaseImb import TwoPhaseImbibition
+from tPhaseImb import TwoPhaseImbibition as PImbibition
 from plot import makePlot
 
 
@@ -32,8 +36,8 @@ def main():
         netsim = Network(input_file_name)
 
         # Single Phase computation
-        netsim = SinglePhase(netsim)
-        netsim.singlephase()
+        sPhase.initialize(netsim)
+        sPhase.singlephase(netsim)
 
         toPlot = True
         compWithLitData = True
@@ -43,12 +47,14 @@ def main():
         writeData = False
         writeTrappedData = True
         fillTillNWDisconnected = True
+        freshStartDrain = True
+        freshStartImb = True
 
         # two Phase simulations
         if input_data.satControl():
             firstDrainCycle = True
             firstImbCycle = True
-            netsim.fillTillNWDisconnected = fillTillNWDisconnected
+            netsim.cycle = 0
             for j in range(len(input_data.satControl())):
                 netsim.finalSat, Pc, netsim.dSw, netsim.minDeltaPc,\
                  netsim.deltaPcFraction, netsim.calcKr, netsim.calcI,\
@@ -64,17 +70,25 @@ def main():
                         (netsim.wettClass, netsim.minthetai, netsim.maxthetai,
                          netsim.delta, netsim.eta, netsim.distModel, netsim.sepAng) =\
                             input_data.initConAng('INIT_CONT_ANG')
-                        netsim = TwoPhaseDrainage(netsim, writeData=writeData,
-                                                  writeTrappedData=writeTrappedData)
+                        PDrainage(netsim, writeData=writeData, writeTrappedData=writeTrappedData)
+                        tPhaseD.initialize(netsim)
                         netsim.prop_drainage = {}
                         netsim.prop_drainage['contactAng'] = netsim.contactAng.copy()
                         netsim.prop_drainage['thetaRecAng'] = netsim.thetaRecAng.copy()
                         netsim.prop_drainage['thetaAdvAng'] = netsim.thetaAdvAng.copy()
                         firstDrainCycle = False
                     else:
-                        netsim = SecDrainage(netsim, writeData=writeData,
-                                             writeTrappedData=writeTrappedData)
-                    netsim.drainage()
+                        SecDrainage(netsim, writeData=writeData, writeTrappedData=writeTrappedData)
+                        SecDrainage.initialize(netsim)
+                        
+                    try:
+                        assert freshStartDrain
+                        tPhaseD.drainage(netsim)
+                    except AssertionError:
+                        with open(os.path.join(f'./saved_simulation_{netsim.title}', 
+                                               f"drainage.pkl"), "rb") as f:
+                            loaded_obj = dill.load(f)
+                        do.updateObj(netsim, loaded_obj)
                     
                     if drainPlot:
                         drainage_results = {}
@@ -85,22 +99,33 @@ def main():
                         
                 else:
                     # Imbibition process
+                    netsim.is_oil_inj = False
                     netsim.minPc = Pc
+                    netsim.fillTillNWDisconnected = fillTillNWDisconnected
                     if firstImbCycle:
                         (netsim.wettClass, netsim.minthetai, netsim.maxthetai,
                          netsim.delta, netsim.eta, netsim.distModel, netsim.sepAng) =\
                             input_data.initConAng('EQUIL_CON_ANG')
-                        netsim = TwoPhaseImbibition(netsim, writeData=writeData,
-                                                writeTrappedData=writeTrappedData)
+                        PImbibition(netsim, writeData=writeData, writeTrappedData=writeTrappedData)
+                        tPhaseImb.initialize(netsim)
                         netsim.prop_imbibition = {}
                         netsim.prop_imbibition['contactAng'] = netsim.contactAng.copy()
                         netsim.prop_imbibition['thetaRecAng'] = netsim.thetaRecAng.copy()
                         netsim.prop_imbibition['thetaAdvAng'] = netsim.thetaAdvAng.copy()
                         firstImbCycle = False
                     else:
-                        netsim = SecImbibition(netsim, writeData=writeData,
-                                                writeTrappedData=writeTrappedData)
-                    netsim.imbibition()
+                        SecImbibition(netsim,writeData=writeData,writeTrappedData=writeTrappedData)
+                        SecImbibition.initialize(netsim)
+
+                    try:
+                        assert freshStartImb
+                        tPhaseImb.imbibition(netsim)
+                    except AssertionError:
+                        with open(os.path.join(f'./saved_simulation_{netsim.title}', 
+                                               f"imbibition.pkl"), "rb") as f:
+                            loaded_obj = dill.load(f)
+                        do.updateObj(netsim, loaded_obj)
+                   
                     if imbibePlot:
                         imbibition_results = {}
                         imbibition_results['model'] = pd.read_csv(
