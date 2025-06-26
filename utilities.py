@@ -672,4 +672,66 @@ def writeResult(self, result_str, Pc):
     return result_str
 
 
+def updateObj1(self, obj):
+    selfDict = self.__dict__
+    selfKeys = selfDict.keys()
+    objDict = obj.__dict__
+    for key in objDict.keys():
+        if key not in selfKeys:
+            setattr(self, key, objDict[key])
+            continue
+        try:
+            old_val = getattr(self, key)
+            new_val = getattr(obj, key)
+            if not (old_val==new_val).all():
+                assert isinstance(old_val, np.ndarray)
+                assert isinstance(new_val, np.ndarray)
+                old_base = old_val.base
+                new_base = new_val.base
+                if (old_base is not None and new_base is not None and
+                    isinstance(old_base, np.ndarray) and isinstance(new_base, np.ndarray)):
+                    old_base[:] = new_base
+                else:
+                    old_val[:] = new_val
+            continue
+        except (AssertionError, AttributeError, TypeError):
+            if old_val!=new_val:
+                setattr(self, key, objDict[key])
+        except ValueError:
+            pass
+
+
+def updateObj(self, obj):
+    selfDict = self.__dict__
+    objDict = obj.__dict__
+
+    for key, new_val in objDict.items():
+        if key not in selfDict:
+            setattr(self, key, new_val)
+            continue
+
+        old_val = selfDict[key]
+
+        try:
+            if isinstance(old_val, np.ndarray) and isinstance(new_val, np.ndarray):
+                # Compare arrays by shape and content
+                if old_val.shape != new_val.shape or not np.all(old_val == new_val):
+                    # If both have bases and are arrays → update the base
+                    if (isinstance(old_val.base, np.ndarray) and 
+                        isinstance(new_val.base, np.ndarray)):
+                        old_val.base[:] = new_val
+                    else:
+                        old_val[:] = new_val
+            else:
+                # If not equal, update attribute
+                if old_val != new_val:
+                    setattr(self, key, new_val)
+
+        except (ValueError, TypeError, AttributeError):
+            # Fallback to setattr if any issue in comparison or assignment
+            setattr(self, key, new_val)
+
+
+
+
         

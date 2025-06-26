@@ -45,20 +45,6 @@ def initialize(self):
     self._cornCond = self._condWP.copy()
     self._centerCond = self._condNWP.copy()
             
-    # self._areaWP = self._cornArea.copy()
-    # self._areaNWP = self._centerArea.copy()
-    # self._condWP = self._cornCond.copy()
-    # self._condNWP = self._centerCond.copy()
-    
-    # self.areaWPhase = self._areaWP.view()
-    # self.areaNWPhase = self._areaNWP.view()
-    # self.gWPhase = self._condWP.view()
-    # self.gNWPhase = self._condNWP.view()
-    # self.cornerArea = self._cornArea.view()
-    # self.centerArea = self._centerArea.view()
-    # self.cornerCond = self._cornCond.view()
-    # self.centerCond = self._centerCond.view()
-
     self.specialPcD = np.zeros(self.totElements)
     self.maxCornerArea = np.zeros(self.totElements)
     self.maxCornerCond = np.zeros(self.totElements)
@@ -125,6 +111,14 @@ def imbibition(self):
     print('Time spent for the imbibition process: ', time() - start)
     print('===========================================================\n\n')
 
+    import dill
+    MEMORY_DIR = f"./saved_simulation_{self.title}"
+    os.makedirs(MEMORY_DIR, exist_ok=True)
+    with open(os.path.join(MEMORY_DIR, f"imbibition.pkl"),"wb") as f:
+        dill.dump(self, f)
+
+    print('Im done with imbibition!!!')
+
 
 def __PImbibition__(self):
     self.totNumFill = 0
@@ -144,9 +138,6 @@ def __PImbibition__(self):
                     try:
                         assert (self.clusterNW.members[0][self.conTToIn].any() and 
                                 self.clusterNW.members[0][self.conTToOutletBdr].any())
-                        # if self.PcTarget<79951:
-                        #     print('222222222222222222222222222')
-                        #     from IPython import embed; embed()
                         popUpdateWaterInj(self)
                     except AssertionError:
                         self.filling = False
@@ -158,8 +149,6 @@ def __PImbibition__(self):
             self.capPresMin = self.PcTarget
         except IndexError:
             self.capPresMin = min(self.capPresMin, self.PcTarget)
-            print('11111111111111111111111111111')
-            from IPython import embed; embed()
         except AssertionError:
             pass
 
@@ -386,6 +375,7 @@ def __computePistonPc__(self):
     condb = (self.fluid == 1) & (self.Garray < self.bndG2)  #polygons filled with w
     condc = (self.fluid == 1) & (self.Garray >= self.bndG2) #circles filled with nw
     condac = (conda | condc)
+    condac[[-1,0]] = False
 
     self.PistonPcAdv[condac] = 2.0*self.sigma*self.cosThetaAdvAng[condac]/self.Rarray[condac]
     conda = conda & (self.maxPc<self.PistonPcRec)

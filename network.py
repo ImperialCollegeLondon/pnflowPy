@@ -368,6 +368,12 @@ class Network(InputData):
         print('Mean pore radius = ', np.mean(self.Rarray[self.poreList]))
 
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        if 'ElemToFill' in state:
+            del state['ElemToFill']  # remove it before pickling
+        return state
+
 
 class Element:
     iTr, iSq, iCi = -1, -1, -1
