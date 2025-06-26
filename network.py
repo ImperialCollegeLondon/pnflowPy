@@ -3,7 +3,7 @@ import numpy as np
 from math import sqrt, pi
 from time import time
 
-from pnflowPy.inputData import InputData
+from inputData import InputData
 
 class Network(InputData):
 
