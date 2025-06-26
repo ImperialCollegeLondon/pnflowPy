@@ -49,12 +49,16 @@ def main():
         fillTillNWDisconnected = True
         freshStartDrain = True
         freshStartImb = True
+        saveDrainage = False
+        saveImbibition = False
 
         # two Phase simulations
         if input_data.satControl():
             firstDrainCycle = True
             firstImbCycle = True
             netsim.cycle = 0
+            netsim.saveDrainage = saveDrainage
+            netsim.saveImbibition = saveImbibition
             for j in range(len(input_data.satControl())):
                 netsim.finalSat, Pc, netsim.dSw, netsim.minDeltaPc,\
                  netsim.deltaPcFraction, netsim.calcKr, netsim.calcI,\
