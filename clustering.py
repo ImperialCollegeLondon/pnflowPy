@@ -1,6 +1,6 @@
 import numpy as np
 from sortedcontainers import SortedList
-import pnflowPy.tPhaseImb as tPhaseImb
+import tPhaseImb as tPhaseImb
 
 class Cluster():
     def __init__(self, obj, fluid=1, numClusters=200):
