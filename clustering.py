@@ -162,10 +162,6 @@ class Cluster():
             return (clustP1, clustP2, clustT, condP1_P1, condP1_T, 
                     condP2_P2, condP2_T, condP1_P1_T, condP2_P2_T, P1array, P2array, tList)
         
-        # if (cond[[6401, 6428, 6559, 6672, 6728, 6860, 7129]].all() #\
-        #     and (cond.sum()==7)):
-        #     print('Condition met for debugging')
-        #     from IPython import embed; embed()
         while True:
             try:
                 (clustP1, clustP2, clustT, condP1_P1, condP1_T, 
@@ -207,7 +203,6 @@ class Cluster():
         def _f1(c, ar, other):
             # compute new moles, volume and pc
             print(f'coalesced clusters: {ar}')
-            #ar = ar[self.moles[ar]>0.0]
             _mem = self.members[ar].any(axis=0)
             mem = other.elementListS[_mem]
             if _mem[other.conTToIn].any() and _mem[other.conTToOut].any():
@@ -215,6 +210,7 @@ class Cluster():
                 ar = ar[ar!=0]
                 self.moles[c] += self.moles[ar].sum()
                 self.volume[c] += self.volume[ar].sum()
+                #self.pc[c] = other.Pc
             else:
                 self.moles[c] = self.moles[ar].sum()
                 self.volume[c] = self.volume[ar].sum()
@@ -224,7 +220,7 @@ class Cluster():
                 self.pc[c] = pc[pc>other.Pc].min()
             except ValueError:
                 self.pc[c] = other.Pc
-           
+        
             mem1 = mem[cluster_ID[mem]!=c]
             clustID = cluster_ID[mem1]
             cluster_ID[mem1] = c
@@ -232,16 +228,6 @@ class Cluster():
             self.members[c, mem1] = True
             return c
         
-
-        # try:
-        #     if (arr==np.array([np.array([31, 188]), np.array([186, 188])])).all():
-        #         print('Condition met for debugging')
-        #        
-        # except:
-        #     pass
-        #print('Im in coalesceClusters')
-        #from IPython import embed; embed()
-       
         while True:
             try:
                 c = values[np.argmax(counts)]
@@ -255,9 +241,7 @@ class Cluster():
                 values, counts = np.unique(arr, return_counts=True)
             except ValueError:
                 break
-            # if c==1994:
-            #     print('waitttt!!!')
-            #     from IPython import embed; embed()
+           
         return
     
 
