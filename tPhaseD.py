@@ -160,11 +160,12 @@ def drainage(self):
     print('Time spent for the drainage process: ', time() - start)        
     print('==========================================================\n\n')
 
-    import dill
-    MEMORY_DIR = f"./saved_simulation_{self.title}"
-    os.makedirs(MEMORY_DIR, exist_ok=True)
-    with open(os.path.join(MEMORY_DIR, f"drainage.pkl"),"wb") as f:
-        dill.dump(self, f)
+    if self.saveDrainage:
+        import dill
+        MEMORY_DIR = f"./saved_simulation_{self.title}"
+        os.makedirs(MEMORY_DIR, exist_ok=True)
+        with open(os.path.join(MEMORY_DIR, f"drainage.pkl"),"wb") as f:
+            dill.dump(self, f)
     
 
 def popUpdateOilInj(self):

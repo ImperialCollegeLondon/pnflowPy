@@ -111,12 +111,13 @@ def imbibition(self):
     print('Time spent for the imbibition process: ', time() - start)
     print('===========================================================\n\n')
 
-    import dill
-    MEMORY_DIR = f"./saved_simulation_{self.title}"
-    os.makedirs(MEMORY_DIR, exist_ok=True)
-    with open(os.path.join(MEMORY_DIR, f"imbibition.pkl"),"wb") as f:
-        dill.dump(self, f)
-        
+    if self.saveImbibition:
+        import dill
+        MEMORY_DIR = f"./saved_simulation_{self.title}"
+        os.makedirs(MEMORY_DIR, exist_ok=True)
+        with open(os.path.join(MEMORY_DIR, f"imbibition.pkl"),"wb") as f:
+            dill.dump(self, f)
+
 
 def __PImbibition__(self):
     self.totNumFill = 0
