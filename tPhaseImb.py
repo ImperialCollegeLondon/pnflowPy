@@ -116,9 +116,7 @@ def imbibition(self):
     os.makedirs(MEMORY_DIR, exist_ok=True)
     with open(os.path.join(MEMORY_DIR, f"imbibition.pkl"),"wb") as f:
         dill.dump(self, f)
-
-    print('Im done with imbibition!!!')
-
+        
 
 def __PImbibition__(self):
     self.totNumFill = 0

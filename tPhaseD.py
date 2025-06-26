@@ -165,9 +165,6 @@ def drainage(self):
     os.makedirs(MEMORY_DIR, exist_ok=True)
     with open(os.path.join(MEMORY_DIR, f"drainage.pkl"),"wb") as f:
         dill.dump(self, f)
-
-    print('Im done with drainage!!!')
-    # from IPython import embed; embed()####
     
 
 def popUpdateOilInj(self):
