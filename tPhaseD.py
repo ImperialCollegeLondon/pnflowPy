@@ -44,8 +44,11 @@ def initialize(self):
     self.connNW = np.zeros(self.totElements, dtype='bool')
     arrr = self.hasWFluid.copy()
     arrr[[0,-1]] = False
+    #print('@@:  ', self.trappedW.sum(), self.trappedNW.sum())
     do.check_Trapping_Clustering(
         self, self.elementListS[arrr], arrr.copy(), 0, 0, True, False)
+    # print('££:  ', self.trappedW.sum(), self.trappedNW.sum())
+    # from IPython import embed; embed()
 
     self.contactAng, self.thetaRecAng, self.thetaAdvAng =\
         do.__wettabilityDistribution__(self)
@@ -76,8 +79,10 @@ def initialize(self):
     self.centreEPOilInj[self.elementLists] = 2*self.sigma*np.cos(
         self.thetaRecAng[self.elementLists])/self.Rarray[self.elementLists]
     
+    self.pop, self.update = 0, 0
     self.ElemToFill = SortedList(key=partial(LookupList, self))
     ElemToFill = self.conTToIn.copy()
+    self.update += ElemToFill.size
     self.ElemToFill.update(ElemToFill)
     self.NinElemList = np.ones(self.totElements, dtype='bool')
     self.NinElemList[ElemToFill] = False
@@ -89,6 +94,8 @@ def initialize(self):
     self.qW, self.qNW = self.qwSPhase, 0.0
     self.krw, self.krnw = 1.0, 0.0
     self.totNumFill = 0
+
+    
 
     
 def LookupList(self, k):
@@ -164,11 +171,14 @@ def drainage(self):
         import dill
         MEMORY_DIR = f"./saved_simulation_{self.title}"
         os.makedirs(MEMORY_DIR, exist_ok=True)
-        with open(os.path.join(MEMORY_DIR, f"drainage.pkl"),"wb") as f:
+        with open(os.path.join(MEMORY_DIR, f"drainage_{int(self.maxPc)}.pkl"),"wb") as f:
             dill.dump(self, f)
+
+    print(f'no of pops: {self.pop}, no of updates: {self.update}')
     
 
 def popUpdateOilInj(self):
+    self.pop += 1
     k = self.ElemToFill.pop(0)
     capPres = self.PcD[k]
     self.capPresMax = np.max([self.capPresMax, capPres])
@@ -273,11 +283,10 @@ def __computePistonPc__(self) -> None:
 
 def __func(self, i):
     '''returns the minimum receding Pc for pistonlike displacement'''
-    try:
-        arr = self.elem[i].neighbours
+    arr = self.elem[i].neighbours
+    if arr.any():
         return self.PistonPcRec[arr[(arr>0) & self.hasNWFluid[arr]]].min()
-    except ValueError:
-        return 0
+    return 0
 
 def __update_PcD_ToFill__(self, arr) -> None:
     minNeiPc = np.array([*map(lambda ar: __func(self, ar), arr)])
@@ -295,6 +304,7 @@ def __update_PcD_ToFill__(self, arr) -> None:
 
     ''' updating the ToFill elements '''
     cond3 = (self.NinElemList[arr])
+    self.update += arr[cond3].size
     self.ElemToFill.update(arr[cond3])
     self.NinElemList[arr[cond3]] = False
     
@@ -305,18 +315,15 @@ def __CondTP_Drainage__(self):
     warnings.simplefilter(action='ignore', category=FutureWarning)
     pd.options.mode.chained_assignment = None
 
-    try:
-        arrr = (self.fluid==1)
-        arrr[[0, -1]] = False
-        assert np.any(arrr)
-    except AssertionError:
+    arrr = (self.fluid==1)
+    arrr[[0, -1]] = False
+    if not np.any(arrr):
         return
     
     arrrS = arrr[self.elemSquare]
     arrrT = arrr[self.elemTriangle]
     arrrC = arrr[self.elemCircle]
-    try:
-        assert np.any(arrrT)
+    if np.any(arrrT):
         Pc = self.PcD[self.elemTriangle]
         curConAng = self.contactAng.copy()
         do.createFilms(self, self.elemTriangle, arrrT, self.halfAnglesTr, Pc,
@@ -340,11 +347,8 @@ def __CondTP_Drainage__(self):
 
         condlist = (cornG < self._cornCond[arrrT])
         self._cornCond[arrrT[condlist]] = cornG[condlist]
-    except AssertionError:
-        pass
     
-    try:
-        assert np.any(arrrS)
+    if np.any(arrrS):
         Pc = self.PcD[self.elemSquare]
         curConAng = self.contactAng.copy()
         do.createFilms(self, self.elemSquare, arrrS, self.halfAnglesSq,
@@ -368,16 +372,11 @@ def __CondTP_Drainage__(self):
 
         condlist = (cornG < self._cornCond[arrrS])
         self._cornCond[arrrS[condlist]] = cornG[condlist]
-    except AssertionError:
-        pass
     
-    try:
-        assert np.any(arrrC)
+    if np.any(arrrC):
         arrrC = self.elemCircle[arrrC]
         self._cornArea[arrrC] = 0.0
         self._cornCond[arrrC] = 0.0
-    except  AssertionError:
-        pass
 
     self._centerArea[arrr] = self.areaSPhase[arrr] - self._cornArea[arrr]
     self._centerCond[arrr] = self._centerArea[arrr]/self.areaSPhase[arrr]*self.gnwSPhase[arrr]

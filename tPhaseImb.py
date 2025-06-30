@@ -38,7 +38,10 @@ def initialize(self):
     __computeSnapoffPc__(self)
     lookup_func = partial(LookupList, PcI=self.PcI, nPores=self.nPores)
     self.ElemToFill = SortedList(key=lookup_func)
+    self.NWElemNotInToFill = self.hasNWFluid.copy()
     __computePc__(self, self.maxPc, self.elementLists.copy(), False, True)
+
+    self.pop, self.update = 0, 0
 
     self._cornArea = self._areaWP.copy()
     self._centerArea = self._areaNWP.copy()
@@ -115,8 +118,10 @@ def imbibition(self):
         import dill
         MEMORY_DIR = f"./saved_simulation_{self.title}"
         os.makedirs(MEMORY_DIR, exist_ok=True)
-        with open(os.path.join(MEMORY_DIR, f"imbibition.pkl"),"wb") as f:
+        with open(os.path.join(MEMORY_DIR, f"imbibition_{int(self.maxPc)}.pkl"),"wb") as f:
             dill.dump(self, f)
+
+    print(f'no of pops: {self.pop}, no of updates: {self.update}')
 
 
 def __PImbibition__(self):
@@ -211,6 +216,7 @@ def unfillWithOil(self, k, Pc, updateCluster=False, updateConnectivity=False,
     self.clusterNW.members[kk,k] = False
     neigh = self.elem[k].neighbours[self.elem[k].neighbours>0]
     neigh = neigh[self.hasNWFluid[neigh]]
+    
     do.check_Trapping_Clustering(
         self, neigh.copy(), self.hasNWFluid.copy(), 1, Pc, 
         updateCluster, updateConnectivity, updatePcClustConToInlet)
@@ -223,6 +229,7 @@ def unfillWithOil(self, k, Pc, updateCluster=False, updateConnectivity=False,
 
 
 def popUpdateWaterInj(self):
+    self.pop += 1
     k = self.ElemToFill.pop(0)
     capPres = self.PcI[k]
     self.capPresMin = np.min([self.capPresMin, capPres])
@@ -242,25 +249,18 @@ def popUpdateWaterInj(self):
 def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True, overrideTrapping=False):
     # to suppress the FutureWarning and SettingWithCopyWarning respectively
     warnings.simplefilter(action='ignore', category=FutureWarning)
-    pd.options.mode.chained_assignment = None
+    pd.options.mode.chained_assignment = None#
 
-    try:
-        assert arrr is None
+    if arrr is None:
         arrr = np.ones(self.totElements, dtype=bool)
-    except AssertionError:
-        pass
-    
     arrrS = arrr[self.isSquare]
     arrrT = arrr[self.isTriangle]
     arrrC = arrr[self.isCircle]
 
-    try:
-        assert Pc is None
+    if Pc is None:
         Pc = np.full(self.totElements, self.capPresMin)
-    except AssertionError:
-        pass
-
-    try:
+    
+    if np.any(arrrS):
         curConAng = self.contactAng.copy()
         apexDist = np.empty_like(self.hingAngSq.T)
         conAngPS, apexDistPS = do.cornerApex(
@@ -283,10 +283,8 @@ def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True, overrideTrap
             self.maxCornerCond[elemSquare[cond]], cornG[cond])
         self._cornCond[elemSquare[cond]] = cornG[cond]
         self._cornCond[elemSquare[~cond]] = self.maxCornerCond[elemSquare[~cond]]
-    except AssertionError:
-        pass
-
-    try:
+    
+    if np.any(arrrT):
         curConAng = self.contactAng.copy()
         apexDist = np.empty_like(self.hingAngTr.T)
         conAngPT, apexDistPT = do.cornerApex(
@@ -309,26 +307,19 @@ def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True, overrideTrap
             self.maxCornerCond[elemTriangle[cond]], cornG[cond])
         self._cornCond[elemTriangle[cond]] = cornG[cond]
         self._cornCond[elemTriangle[~cond]] = self.maxCornerCond[elemTriangle[~cond]]
-    except AssertionError:
-        pass
-
-    try:
-        assert arrrC.size>0
+    
+    if np.any(arrrC):
         arrrC = self.elemCircle[arrrC]
         self._cornArea[arrrC] = 0.0
         self._cornCond[arrrC] = 0.0
-    except  AssertionError:
-        pass
-
+    
     self._centerArea = self.areaSPhase - self._cornArea
     self._centerCond = np.where(
         self.areaSPhase != 0.0, 
         self._centerArea/self.areaSPhase*self.gnwSPhase, 0.0)
-    try:
-        assert updateArea      
+    
+    if updateArea:     
         __updateAreaCond__(self, arrr, overrideTrapping)
-    except AssertionError:
-        pass
 
 
 def __updateAreaCond__(self, arrr, overrideTrapping):
@@ -517,6 +508,64 @@ def __computePc__(self, Pc, arr, update=True, trapping=True):
     _arr = arr[self.hasNWFluid[arr]] # & ~self.trappedNW[arr]]  # elements filled with nw
     arrP = _arr[(_arr <= self.nPores)]   #pores filled with nw
     arrT = _arr[(_arr > self.nPores)]      #throats filled with nw
+
+    hasOnlyWFluid = (self.fluid==0)
+    valid_T_WF = hasOnlyWFluid[self.PTConnections]&(self.PTValid)
+    if arrP.size>0:
+        ''' identify pores where porebody filling could occur '''
+        arr1 = arrP[np.sum(valid_T_WF[arrP], axis=1)>0]
+        arr1 = arr1[(self.thetaAdvAng[arr1]<np.pi/2.0)]
+        __porebodyFilling__(self, arr1)
+        entryPc[arr1] = self.porebodyPc[arr1]
+    
+        ''' update the piston-like entry Pc '''
+        maxNeiPistonPrs[arrP] = np.max(
+            self.PistonPcAdv[self.PTConnections[arrP]], axis=1, initial=0.0,
+            where=valid_T_WF[arrP])
+    
+    if arrT.size>0:
+        ''' update the piston-like entry Pc '''
+        _arrT = arrT-self.nPores
+        maxNeiPistonPrs[arrT] = np.max(
+            self.PistonPcAdv[self.TPConnections[_arrT]], axis=1, initial=0.0,
+            where=(hasOnlyWFluid[self.TPConnections[_arrT]]))
+        
+    condb = (maxNeiPistonPrs > 0.0)
+    entryPc[condb] = np.minimum(0.999*maxNeiPistonPrs[
+        condb]+0.001*entryPc[condb], entryPc[condb])
+    
+    ''' Snap-off filling '''
+    __updateSnapoffPc__(self, Pc)
+    conda = (maxNeiPistonPrs > 0.0) & (entryPc>self.snapoffPc)
+    toSnapoff = (~conda)&self.isPolygon
+    entryPc[toSnapoff] = self.snapoffPc[toSnapoff]
+
+    ''' update the toFill list '''
+    try:
+        assert update
+        ''' update PcI '''   
+        diff = (self.PcI[_arr]!=entryPc[_arr])
+        changed = diff&(~self.NWElemNotInToFill[_arr])
+        for i in _arr[changed]: self.ElemToFill.discard(i)
+        self.PcI[arr] = entryPc[arr]
+        ''' add to the toFill list '''        
+        to_add = _arr[(diff|self.NWElemNotInToFill[_arr])]
+        self.update += _arr.size
+        self.ElemToFill.update(to_add)
+        self.NWElemNotInToFill[to_add] = False
+    except AssertionError:
+        self.PcI[arr] = entryPc[arr]
+        _arr = __func4(self, _arr, trapping)
+        self.update += _arr.size
+        self.ElemToFill.update(_arr)
+       
+
+def __computePcOld__(self, Pc, arr, update=True, trapping=True):
+    entryPc = self.PistonPcAdv.copy()
+    maxNeiPistonPrs = np.zeros(self.totElements)
+    _arr = arr[self.hasNWFluid[arr]] # & ~self.trappedNW[arr]]  # elements filled with nw
+    arrP = _arr[(_arr <= self.nPores)]   #pores filled with nw
+    arrT = _arr[(_arr > self.nPores)]      #throats filled with nw
     _arrT = arrT-self.nPores
 
     ''' identify pores where porebody filling could occur '''
@@ -576,8 +625,7 @@ def __func4(self, arr, trapping=True):
     (ii) the wetting fluid in the corners or a neighbouring element;
     (iii) the wetting fluid is not trapped.'''
 
-    arrr = np.zeros(self.totElements, dtype=bool)
-    arrr[arr[self.hasWFluid[arr]]] = True
+    hasWFluid = arr[self.hasWFluid[arr]]
     arr = arr[~self.hasWFluid[arr]]
     arrP = arr[arr<=self.nPores]
     arrPT = self.PTConnections[arrP]
@@ -586,15 +634,17 @@ def __func4(self, arr, trapping=True):
 
     try:
         assert trapping
-        conP = (self.hasWFluid[arrPT])&(~self.trappedW[arrPT])&self.PTValid[arrP]
-        conT = (arrTP==-1) | ((self.hasWFluid[arrTP])&(~self.trappedW[arrTP])&(arrTP>0))
+        hasValidNeighP = arrP[np.any(
+            (self.hasWFluid[arrPT])&(~self.trappedW[arrPT])&self.PTValid[arrP], axis=1)]
+        hasValidNeighT = arrT[np.any(
+            (arrTP==-1) | ((self.hasWFluid[arrTP])&(~self.trappedW[arrTP])&(arrTP>0)), axis=1)]
     except AssertionError:
-        conP = (self.hasWFluid[arrPT])&self.PTValid[arrP]
-        conT = (arrTP==-1) | ((self.hasWFluid[arrTP])&(arrTP>0))
+        hasValidNeighP = arrP[np.any((self.hasWFluid[arrPT])&self.PTValid[arrP], axis=1)]
+        hasValidNeighT = arrT[np.any((arrTP==-1) | ((self.hasWFluid[arrTP])&(arrTP>0)), axis=1)]
     
-    arrr[arrP[conP.any(axis=1)]] = True
-    arrr[arrT[conT.any(axis=1)]] = True
-    return self.elementListS[arrr]
+    arrr = np.concatenate((hasWFluid, hasValidNeighP, hasValidNeighT))
+    self.NWElemNotInToFill[arrr] = False
+    return arrr
 
 
 def __porebodyFilling__(self, ind):

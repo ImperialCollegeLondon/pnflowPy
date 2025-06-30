@@ -1,8 +1,10 @@
 import numpy as np
 from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import connected_components
 import warnings
 from solver import Solver
 from functools import reduce
+from collections import deque
 
 class Computations():
     def __init__(self, obj):
@@ -40,7 +42,89 @@ def computegL(self, g) -> np.array:
     return gL
 
 
-def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False, 
+def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False,
+                                updateConnectivity=False, updatePcClustConToInlet=True):
+    i = 0
+    members = np.zeros(self.totElements, dtype=bool)
+    arrDict = {}
+    connectedCluster = []
+    TValid = self.TValid[notdone[self.TValid]]
+    TPValid = self.TPValid[notdone[self.TValid]]
+    mem = np.zeros(self.totElements, dtype=bool)
+    
+    while arr.size:
+        i += 1
+        ii = arr[0]
+        done = np.zeros(self.totElements, dtype=bool)
+        done[ii] = True
+        notdone[ii] = False
+        trappedStatus, connStatus = True, False
+
+        doPore = (ii<=self.nPores)
+        while True:
+            if doPore:
+                ii_next = TValid[done[TPValid]]
+                doPore = False
+            else:
+                ii_next = TPValid[done[TValid]]
+                doPore = True
+
+            ii_next = ii_next[notdone[ii_next]]
+            if ii_next.size == 0:
+                break
+
+            done[ii_next] = True
+            notdone[ii_next] = False
+        
+        TValid, TPValid = TValid[notdone[TValid]], TPValid[notdone[TValid]]
+        trappedStatus = not (self.toInlet[done].any() or self.toOutlet[done].any())
+        if self.toInBdr[done].any() and self.toOutBdr[done].any():
+            connStatus = True
+            connectedCluster.append(i)
+            mem[done] = True
+
+        arrDict[i] = {'members': done, 'connStatus': connStatus, 'trappedStatus': trappedStatus}
+        arr = arr[notdone[arr]]
+        members[done] = True
+
+    try:
+        if fluid == 0:
+            cluster_ID, cluster, trapped = self.clusterW_ID, self.clusterW, self.trappedW
+        else:
+            cluster_ID, cluster, trapped = self.clusterNW_ID, self.clusterNW, self.trappedNW
+
+        if not updateCluster:
+            isConnected = mem.any()
+            cluster.connected[0] = isConnected
+            cluster.clustConToExit[0] = isConnected
+            cluster.trappedStatus[0] = not isConnected
+            ids = cluster_ID[mem][cluster_ID[mem] >= 0]
+            if ids.size>0 and not (ids==0).all():
+                mem1 = self.elementListS[mem][cluster_ID[mem] >= 0]
+                mem1 = mem1[ids != 0]
+                ids = ids[ids != 0]
+                cluster_ID[mem1] = 0
+                cluster.members[:, mem1] = False
+                cluster.members[0][mem1] = True
+                trapped[mem1] = False
+                availClust = ids[~cluster.members[ids].any(axis=1)]
+                cluster.availableID.update(availClust)
+        else:
+            members = self.elementListS[members]
+            cluster.clustering(members, arrDict, Pc, cluster_ID, cluster, trapped, 
+                               updatePcClustConToInlet)
+
+    except AttributeError:
+        pass
+
+    if not updateConnectivity:
+        return
+    else:
+        return mem
+
+
+
+def check_Trapping_ClusteringOld(self, arr, notdone, fluid, Pc, updateCluster=False, 
                                 updateConnectivity=False, updatePcClustConToInlet=True):
     i = 0
     members = np.zeros(self.totElements, dtype='bool')
@@ -74,6 +158,7 @@ def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False
                     connectedCluster.append(i)
                     arrDict[i] = {'members': done, 'connStatus': connStatus, 
                                     'trappedStatus': trappedStatus}
+                    arr = arr[notdone[arr]]  # -- just added this line
                     continue
             except (AssertionError, IndexError):
                 pass
@@ -128,6 +213,8 @@ def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False
         except AssertionError:
             cluster_ID, cluster, trapped = self.clusterNW_ID, self.clusterNW, self.trappedNW
 
+        #from IPython import embed; embed()
+
         assert not updateCluster
         cond = mem.any()
         cluster.connected[0] = cond
@@ -155,7 +242,6 @@ def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False
         members = self.elementListS[members]
         cluster.clustering(members, arrDict, Pc, cluster_ID, cluster, 
                             trapped, updatePcClustConToInlet)
-        
     try:
         assert not updateConnectivity
         return
@@ -670,35 +756,6 @@ def writeResult(self, result_str, Pc):
             Pc, self.totNumFill, )
     
     return result_str
-
-
-def updateObj1(self, obj):
-    selfDict = self.__dict__
-    selfKeys = selfDict.keys()
-    objDict = obj.__dict__
-    for key in objDict.keys():
-        if key not in selfKeys:
-            setattr(self, key, objDict[key])
-            continue
-        try:
-            old_val = getattr(self, key)
-            new_val = getattr(obj, key)
-            if not (old_val==new_val).all():
-                assert isinstance(old_val, np.ndarray)
-                assert isinstance(new_val, np.ndarray)
-                old_base = old_val.base
-                new_base = new_val.base
-                if (old_base is not None and new_base is not None and
-                    isinstance(old_base, np.ndarray) and isinstance(new_base, np.ndarray)):
-                    old_base[:] = new_base
-                else:
-                    old_val[:] = new_val
-            continue
-        except (AssertionError, AttributeError, TypeError):
-            if old_val!=new_val:
-                setattr(self, key, objDict[key])
-        except ValueError:
-            pass
 
 
 def updateObj(self, obj):

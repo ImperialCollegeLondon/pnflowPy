@@ -2,6 +2,7 @@ import os
 import numpy as np
 from math import sqrt, pi
 from time import time
+from scipy.sparse import coo_matrix
 
 from inputData import InputData
 
@@ -58,7 +59,7 @@ class Network(InputData):
         node2 = np.loadtxt(self.cwd + '/' + str(self.title) + "_node2.dat")
 
         self.poreList = np.arange(1, self.nPores+1)
-        self.throatList = np.arange(1, self.nThroats+1)
+        self.throatList = np.arange(1, self.nThroats+1, dtype='int32')
         self.tList = self.throatList+self.nPores
         self.Area_ = self.yDim*self.zDim
         self.Lnetwork = self.xDim
@@ -167,10 +168,19 @@ class Network(InputData):
         self.nSquares = self.elemSquare.size
         self.nCircles = self.elemCircle.size
 
+        self.connectivity_graph = [[] for _ in range(self.totElements)]
         self.elem = np.zeros(self.totElements, dtype='object')
         self.elem[[0, -1]] = Outlet(self), Inlet(self)
         self.elem[1:-1] = [Element(self, i) for i in range(1,self.totElements-1)]
+        self.connectivity_graph = np.array(self.connectivity_graph, dtype=object)
+        self.connectivity_graph[:self.nPores+1] = self.PTConData
+        self.connectivity_graph[-1] = np.array([], dtype='int32')
 
+        self.TPCond = (self.TPConnections>0) # location of valid pores connected to each throats
+        TValid = np.dstack((self.tList, self.tList))[0]
+        self.TValid = TValid[self.TPCond[1:]] # valid throats (Oren)
+        self.TPValid = self.TPConnections[self.TPCond]
+       
         self.PcD = np.zeros(self.totElements)
         self.PcI = np.zeros(self.totElements)
 
@@ -415,6 +425,7 @@ class Element:
         self.poreOutletStat = obj.poreOutletStat[self.index]
         self.connP = obj.PPConData[self.index]
         self.neighbours = self.connT = obj.PTConData[self.index]
+        # obj.connectivity_graph[self.index] = list(self.neighbours)
         #obj.PTConnections[self.index,:self.connT.size]=self.connT
 
 
@@ -434,6 +445,7 @@ class Element:
         self.LP2mod = obj.LP2array_mod[self.index-1]
         self.LTmod = obj.LTarray_mod[self.index-1]
         self.neighbours = np.array([self.P1, self.P2])
+        obj.connectivity_graph[self.indexOren] = self.neighbours[self.neighbours>0]
 
     def loadTriangleProp(self, obj):
         Element.iTr += 1
@@ -467,6 +479,9 @@ class Outlet:
         self.connected = False
         self.isinsideBox = False
         self.neighbours = parent.conTToOut
+
+
+
 
 
 #network = Network('./data/input_pnflow_bent.dat')
