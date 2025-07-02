@@ -181,9 +181,8 @@ def popUpdateOilInj(self):
     self.pop += 1
     k = self.ElemToFill.pop(0)
     capPres = self.PcD[k]
-    self.capPresMax = np.max([self.capPresMax, capPres])
-    try:
-        assert not self.trappedW[k]
+    self.capPresMax = max(self.capPresMax, capPres)
+    if not self.trappedW[k]:
         self.fluid[k] = 1
         self.hasNWFluid[k] = True
         self.connNW[k] = True
@@ -192,74 +191,63 @@ def popUpdateOilInj(self):
         self.PistonPcRec[k] = self.centreEPOilInj[k]
         arr = self.elem[k].neighbours[self.elem[k].neighbours>0]
         arr = arr[(self.fluid[arr]==0) & (~self.trappedW[arr])]
-        try:
-            assert self.isCircle[k]
+        if self.isCircle[k]:
             kk = self.clusterW_ID[k]
             self.clusterW_ID[k] = -5
             self.clusterW.members[kk,k] = False
             self.connW[k] = False
             self.hasWFluid[k] = False
             do.check_Trapping_Clustering(
-                self, arr.copy(), self.hasWFluid.copy(), 0, self.capPresMax, True)
-        except AssertionError:
-            pass             
+                self, arr.copy(), self.hasWFluid.copy(), 0, self.capPresMax, True)        
         self.cnt += 1
         self.invInsideBox += self.isinsideBox[k]
         __update_PcD_ToFill__(self, arr)            
-    except AssertionError:
-        pass
+   
 
 def __PDrainage__(self):
     warnings.simplefilter(action='ignore', category=RuntimeWarning)
     self.totNumFill = 0
     self.fillTarget = max(self.m_minNumFillings, int(
-        self.m_initStepSize*(self.totElements)*(
+        self.m_initStepSize*self.totElements*(
             self.SwTarget-self.satW)))
     self.invInsideBox = 0
+    endWhile = False
 
-    while (self.PcTarget+1.0e-32 > self.capPresMax) & (
+    while (self.PcTarget > self.capPresMax-1.0e-32) and (
             self.satW > self.SwTarget):
         self.oldSatW = self.satW
         self.invInsideBox = 0
         self.cnt = 0
-        try:
-            while (self.invInsideBox < self.fillTarget) & (
-                len(self.ElemToFill) != 0) & (
-                    self.PcD[self.ElemToFill[0]] <= self.PcTarget):
-                popUpdateOilInj(self)
-        except IndexError:
-            self.totNumFill += self.cnt
+        while self.ElemToFill and (self.invInsideBox < self.fillTarget) and (
+            self.PcD[self.ElemToFill[0]] <= self.PcTarget):
+            popUpdateOilInj(self)
+
+        self.totNumFill += self.cnt
+        if not self.ElemToFill:
+            self.PcTarget = self.capPresMax
             break
 
-        try:
-            assert (self.PcD[self.ElemToFill[0]] > self.PcTarget) & (
-                    self.capPresMax < self.PcTarget)
-            self.capPresMax = self.PcTarget
-        except AssertionError:
-            pass
+        if (self.PcD[self.ElemToFill[0]] > self.PcTarget):
+            self.capPresMax = max(self.capPresMax, self.PcTarget)
+            endWhile = True
+        
         
         __CondTP_Drainage__(self)
         self.satW = do.Saturation(self, self.areaWPhase, self.areaSPhase)
-        self.totNumFill += self.cnt
-        try:
+        if self.satW-self.oldSatW!=0.0:
             self.fillTarget = max(self.m_minNumFillings, int(min(
                 self.fillTarget*self.m_maxFillIncrease,
                 self.m_extrapCutBack*(self.invInsideBox / (
                     self.satW-self.oldSatW))*(self.SwTarget-self.satW))))
-        except OverflowError:
-            pass
-            
-        try:
-            assert self.PcD[self.ElemToFill[0]] <= self.PcTarget
-        except AssertionError:
+        
+        if endWhile:
             break
 
-    try:
-        assert (self.PcD[self.ElemToFill[0]] > self.PcTarget)
+    if endWhile:
         self.capPresMax = self.PcTarget
-    except (AssertionError, IndexError):
+    else:
         self.PcTarget = self.capPresMax
-    
+
     __CondTP_Drainage__(self)
     self.satW = do.Saturation(self, self.areaWPhase, self.areaSPhase)
     do.computePerm(self, self.capPresMax)

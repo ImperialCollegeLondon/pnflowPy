@@ -1,10 +1,9 @@
 import numpy as np
 from scipy.sparse import csr_matrix
-from scipy.sparse.csgraph import connected_components
 import warnings
 from solver import Solver
 from functools import reduce
-from collections import deque
+from numba import njit, prange
 
 class Computations():
     def __init__(self, obj):
@@ -21,25 +20,52 @@ class Computations():
 def matrixSolver(Amatrix, Cmatrix) -> np.array:
     return Solver(Amatrix, Cmatrix).solve()
 
-def computegL(self, g) -> np.array:
+def computegLOld(self, g) -> np.array:
     gL = np.zeros(self.nThroats)
-    cond = (g[self.tList] > 0.0) & (
-        (g[self.P1array] > 0) | (self.P1array < 1)) & (
-        (g[self.P2array] > 0) | (self.P2array < 1))
-    cond3 = cond & (g[self.P1array] > 0) & (g[self.P2array] > 0)
-    cond2 = cond & (g[self.P1array] == 0) & (g[self.P2array] > 0) & (
-        self.LP2array_mod > 0)
-    cond1 = cond & (g[self.P1array] > 0) & (g[self.P2array] == 0) & (
-        self.LP1array_mod > 0)
+    gP1 = g[self.P1array]
+    gP2 = g[self.P2array]
+    gT  = g[self.tList]
 
-    gL[cond3] = 1/(self.LP1array_mod[cond3]/g[self.P1array[cond3]] +
-                self.LTarray_mod[cond3]/g[self.tList[cond3]] + self.LP2array_mod[
-                cond3]/g[self.P2array[cond3]])
-    gL[cond2] = 1/(self.LTarray_mod[cond2]/g[self.tList[cond2]] + self.LP2array_mod[
-                cond2]/g[self.P2array[cond2]])
-    gL[cond1] = 1/(self.LTarray_mod[cond1]/g[self.tList[cond1]] + self.LP1array_mod[
-                cond1]/g[self.P1array[cond1]])
+    cond = (gT > 0.0) & ((gP1>0) | (self.P1array<1)) & ((gP2>0) | (self.P2array<1))
+    cond3 = cond & (gP1>0) & (gP2>0)
+    cond2 = cond & (gP1==0) & (gP2>0) & (self.LP2array_mod>0)
+    cond1 = cond & (gP1>0) & (gP2==0) & (self.LP1array_mod>0)
+
+    gL[cond3] = 1.0/(self.LP1array_mod[cond3]/gP1[cond3] + 
+                     self.LTarray_mod[cond3]/gT[cond3] + 
+                     self.LP2array_mod[cond3]/gP2[cond3])
+    gL[cond2] = 1.0/(self.LTarray_mod[cond2]/gT[cond2] + 
+                     self.LP2array_mod[cond2]/gP2[cond2])
+    gL[cond1] = 1.0/(self.LTarray_mod[cond1]/gT[cond1] + 
+                     self.LP1array_mod[cond1]/gP1[cond1])
     return gL
+
+
+def computegL(self, g) -> np.array:
+    return compute_gL_numba(
+        self.P1array, self.P2array, self.tList,
+        self.LP1array_mod, self.LP2array_mod, self.LTarray_mod,
+        g, self.nThroats
+    )
+
+
+@njit(parallel=True)
+def compute_gL_numba(P1array, P2array, tList, LP1, LP2, LT, g, nThroats):
+    gL = np.zeros(nThroats)
+    for i in prange(nThroats):
+        gT  = g[tList[i]]
+        gP1 = g[P1array[i]]
+        gP2 = g[P2array[i]]
+
+        if (gT > 0.0) and ((gP1>0) or (P1array[i]<1)) and ((gP2>0) or (P2array[i]<1)):
+            if (gP1 > 0) and (gP2 > 0):
+                gL[i] = 1.0 / (LP1[i]/gP1 + LT[i]/gT + LP2[i]/gP2)
+            elif (gP1 == 0) and (gP2 > 0) and (LP2[i] > 0):
+                gL[i] = 1.0 / (LT[i]/gT + LP2[i]/gP2)
+            elif (gP1 > 0) and (gP2 == 0) and (LP1[i] > 0):
+                gL[i] = 1.0 / (LT[i]/gT + LP1[i]/gP1)
+    return gL
+
 
 
 def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False,
@@ -249,8 +275,7 @@ def check_Trapping_ClusteringOld(self, arr, notdone, fluid, Pc, updateCluster=Fa
         return mem
 
     
-def __getValue__(self, arrr, gL):
-    row, col, data = [], [], []
+def __getValueOld__(self, arrr: np.ndarray, gL: np.ndarray) -> tuple[csr_matrix, np.ndarray]:
     indP = self.poreList[arrr[self.poreList]]
     c = indP.size
     mList = -np.ones(self.nPores+2, dtype='int')
@@ -261,7 +286,7 @@ def __getValue__(self, arrr, gL):
 
     ''' throats within the calcBox '''
     cond1 = arrrT & arrrP1 & arrrP2
-    arrr[self.tList[cond1]] = False
+    #arrr[self.tList[cond1]] = False
     t_1 = self.throatList[cond1]
     P1_1, P2_1 = mList[self.P1array[cond1]], mList[self.P2array[cond1]]
     cond_1 = gL[t_1-1]
@@ -291,6 +316,88 @@ def __getValue__(self, arrr, gL):
 
     return Amatrix, Cmatrix
 
+
+@njit
+def build_Amatrix_data(
+    throatList, P1array, P2array,
+    isOnInletBdr, isOnOutletBdr, gL, mList):
+
+    row = np.empty(4*throatList.size, dtype=np.int32)
+    col = np.empty_like(row)
+    data = np.empty(4*throatList.size, dtype=np.float64)
+    count = 0
+
+    c = np.sum(mList >= 0)  # number of active pores
+    Cmatrix = np.zeros(c)
+
+    for t in throatList:
+        cond = gL[t]
+
+        if cond == 0.0:
+            continue
+
+        P1_t, P2_t = P1array[t], P2array[t]
+        P1, P2 = mList[P1_t], mList[P2_t]
+        
+        if (P1 >= 0) and (P2 >= 0):
+            # internal connection
+            row[count:count+4] = [P1, P2, P1, P2]
+            col[count:count+4] = [P2, P1, P1, P2]
+            data[count:count+4] = [-cond, -cond, cond, cond]
+            count += 4
+
+        elif (P1 >= 0) and (isOnInletBdr[P2_t]):
+            # connection to inlet boundary
+            row[count] = P1
+            col[count] = P1
+            data[count] = cond
+            count += 1
+            Cmatrix[P1] += cond
+
+        elif (P2 >= 0) and (isOnInletBdr[P1_t]):
+            # connection to inlet boundary
+            row[count] = P2
+            col[count] = P2
+            data[count] = cond
+            count += 1
+            Cmatrix[P2] += cond
+
+        elif (P1 >= 0) and (isOnOutletBdr[P2_t]):
+            # connection to outlet boundary
+            row[count] = P1
+            col[count] = P1
+            data[count] = cond
+            count += 1
+
+        elif (P2 >= 0) and (isOnOutletBdr[P1_t]):
+            # connection to outlet boundary
+            row[count] = P2
+            col[count] = P2
+            data[count] = cond
+            count += 1
+
+    return row[:count], col[:count], data[:count], Cmatrix
+
+
+def __getValue__(self, arrr, gL):
+    indP = self.poreList[arrr[self.poreList]]
+    c = indP.size
+    mList = -np.ones(self.nPores+2, dtype=np.int32)
+    mList[indP] = np.arange(c)
+
+    throatList = self.throatList[arrr[self.tList]]-1
+
+    row, col, data, Cmatrix = build_Amatrix_data(
+        throatList, self.P1array, self.P2array,
+        self.isOnInletBdr, self.isOnOutletBdr, gL,
+        mList
+    )
+
+    Amatrix = csr_matrix((data, (row, col)), shape=(c, c), dtype=float)
+
+    return Amatrix, Cmatrix
+
+
 def Saturation(self, AreaWP, AreaSP):
     satWP = AreaWP/AreaSP
     num = (satWP[self.isinsideBox]*self.volarray[self.isinsideBox]).sum()
@@ -300,57 +407,59 @@ def Saturation(self, AreaWP, AreaSP):
 def computeFlowrate(self, gL, fluid, Pc, vector=False):
     conn = self.connW.copy() if fluid==0 else self.connNW.copy()
     conTToIn = self.conTToIn.copy()
-    arrr = np.zeros(self.totElements, dtype='bool')    
-    arrr[self.P1array[(gL > 0.0)]] = True
-    arrr[self.P2array[(gL > 0.0)]] = True
-    arrr[self.tList[(gL > 0.0)]] = True
+    arrr = np.zeros(self.totElements, dtype='bool')
+    active = (gL > 0.0)
+    arrr[self.P1array[active]] = True
+    arrr[self.P2array[active]] = True
+    arrr[self.tList[active]] = True
     arrr = (arrr & self.connected)
     conn = check_Trapping_Clustering(
         self, conTToIn[arrr[conTToIn]], arrr.copy(), fluid, Pc, updateConnectivity=True)
-    try:
-        assert fluid==0
-        self.connW = conn
-    except AssertionError:
-        self.connNW = conn
+    if fluid == 0: self.connW = conn
+    else: self.connNW = conn
     conn = conn & self.isinsideBox
     Amatrix, Cmatrix = __getValue__(self, conn, gL)
         
     pres = np.zeros(self.nPores+2)
-    try:
-        assert conn.sum()>0
+    if conn.any():
         pres[conn[self.poreListS]] = matrixSolver(Amatrix, Cmatrix)
         pres[self.isOnInletBdr[self.poreListS]] = 1.0       
-        delP = np.abs(pres[self.P1array] - pres[self.P2array])
-        qp = gL*delP
-    except AssertionError:
+        qp = compute_qp(self.P1array, self.P2array, gL, pres)
+    else:
         qp = np.zeros(self.nThroats)
     
-    try:
-        assert not vector
-        try:
-            conTToInletBdr = self._conTToInletBdr[conn[self.conTToInletBdr]]
-            conTToOutletBdr = self._conTToOutletBdr[conn[self.conTToOutletBdr]]
-            qinto = qp[conTToInletBdr-1].sum()
-            qout = qp[conTToOutletBdr-1].sum()
-            assert np.isclose(qinto, qout, atol=1e-30)
+    if not vector:
+        conTToInletBdr = self._conTToInletBdr[conn[self.conTToInletBdr]]
+        conTToOutletBdr = self._conTToOutletBdr[conn[self.conTToOutletBdr]]
+        qinto = qp[conTToInletBdr-1].sum()
+        qout = qp[conTToOutletBdr-1].sum()
+        if np.isclose(qinto, qout, atol=1e-30):
             qout = (qinto+qout)/2
-        except AssertionError:
-            pass
         return qout
-    except AssertionError:
+    else:
         return (qp, (pres[self.P2array]<=pres[self.P1array]))
+    
+
+@njit
+def compute_qp(P1array, P2array, gL, pres):
+    n = len(gL)
+    delP = np.empty(n)
+    qp = np.empty(n)
+    for i in range(n):
+        delP[i] = abs(pres[P1array[i]] - pres[P2array[i]])
+        qp[i] = gL[i] * delP[i]
+    return qp
         
 
 def computePerm(self, Pc):
     gwL = computegL(self, self.gWPhase)
     self.qW = self.qW = computeFlowrate(self, gwL, 0, Pc)
     self.krw = self.krw = self.qW/self.qwSPhase
-    try:
-        assert self.fluid[self.conTToOutletBdr].sum() > 0
+    if self.fluid[self.conTToOutletBdr].sum() > 0:
         gnwL = computegL(self, self.gNWPhase)
         self.qNW = self.qNW = computeFlowrate(self, gnwL, 1, Pc)
         self.krnw = self.krnw = self.qNW/self.qnwSPhase
-    except AssertionError:
+    else:
         self.qNW, self.krnw = 0.0, 0.0
     
     self.fw = self.qW/(self.qW + self.qNW)
