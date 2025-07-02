@@ -204,8 +204,15 @@ def fillWithWater(self, k):
             self.clusterW.members[ids] = False
             self.clusterW.availableID.update(ids)
             self.clusterW_ID[mem] = ii
-        except (AssertionError, ValueError):
+        except AssertionError:
             pass
+        except ValueError:
+            do.check_Trapping_Clustering(
+                self, np.array([k]), self.hasWFluid.copy(), 0, self.capPresMin, 
+                True, False, True)
+            ii = self.clusterW_ID[k]
+            self.connW[k] = self.clusterW[ii].connected
+
 
 def unfillWithOil(self, k, Pc, updateCluster=False, updateConnectivity=False, 
                     updatePcClustConToInlet=True, updatePc=True, adjustPc=False):
