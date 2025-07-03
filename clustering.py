@@ -190,16 +190,16 @@ class Cluster():
                 ar = ar[ar!=0]
                 self.moles[c] += self.moles[ar].sum()
                 self.volume[c] += self.volume[ar].sum()
-                #self.pc[c] = other.Pc
             else:
                 self.moles[c] = self.moles[ar].sum()
                 self.volume[c] = self.volume[ar].sum()
             
             pc = np.append(self.pc[c], self.pc[ar])
-            try:
-                self.pc[c] = pc[pc>other.Pc].min()
-            except ValueError:
+            pc = pc[pc>other.Pc]
+            if pc.size==0:
                 self.pc[c] = other.Pc
+            else:
+                self.pc[c] = pc[pc>other.Pc].min()
         
             mem1 = mem[cluster_ID[mem]!=c]
             clustID = cluster_ID[mem1]
@@ -208,20 +208,17 @@ class Cluster():
             self.members[c, mem1] = True
             return c
         
-        while True:
-            try:
-                c = values[np.argmax(counts)]
-                arrC = [ar[ar!=c][0] for ar in arr if c in ar]
-                self.neighbours[arrC] = False
-                arrC.append(c)
-                c1 = _f1(c, np.array(arrC), other)
-                if c1 in arrC: arrC.remove(c1)
-                for c2 in arrC: del self[c2]
-                arr = [ar for ar in arr if c not in ar]
-                values, counts = np.unique(arr, return_counts=True)
-            except ValueError:
-                break
-           
+        while counts.size>0:
+            c = values[np.argmax(counts)]
+            arrC = [ar[ar!=c][0] for ar in arr if c in ar]
+            self.neighbours[arrC] = False
+            arrC.append(c)
+            c1 = _f1(c, np.array(arrC), other)
+            if c1 in arrC: arrC.remove(c1)
+            for c2 in arrC: del self[c2]
+            arr = [ar for ar in arr if c not in ar]
+            values, counts = np.unique(arr, return_counts=True)
+            
         return
     
 
