@@ -71,9 +71,24 @@ def imbibition(self):
     self.fillTarget = max(self.m_minNumFillings, int(
         self.m_initStepSize*(self.totElements)*(
             self.satW-self.SwTarget)))
+            
+    # import dill
+    # MEMORY_DIR = f"./saved_simulation_{self.title}"
+    # os.makedirs(MEMORY_DIR, exist_ok=True)
+    # targetFluid_pore = np.loadtxt('/home/aiadebimpe/PoreFlow/data/fPores_BentSepi_imbibition_fluid_occupancy.dat', dtype=int)
+    # targetFluid_throat = np.loadtxt('/home/aiadebimpe/PoreFlow/data/fThroats_BentSepi_imbibition _fluid_occupancy.dat', dtype=int)
+    # targetFluid = np.zeros_like(self.fluid)
+    # targetFluid[self.poreList] = (targetFluid_pore==2)
+    # targetFluid[self.tList] = (targetFluid_throat==2)
     
     while self.filling:
         __PImbibition__(self)
+        
+        #MAD = np.sum(np.abs(self.fluid-targetFluid)*self.volarray)/np.sum(self.volarray)*100
+        #print(self.capPresMin, targetFluid.sum(), self.fluid.sum(), MAD)
+        # with open(os.path.join(MEMORY_DIR, f"imbibition_{self.capPresMin}.pkl"),"wb") as f:
+            # dill.dump(self, f)
+        
         if (self.PcTarget < self.minPc+0.001) or (
                 self.satW > self.finalSat-0.00001):
             self.filling = False

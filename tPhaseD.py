@@ -118,10 +118,24 @@ def drainage(self):
     self.oldPcTarget = 0
     self.resultD_str = do.writeResult(self, self.resultD_str, self.capPresMin)
     
-
+    # import dill
+    # MEMORY_DIR = f"./saved_simulation_{self.title}"
+    # os.makedirs(MEMORY_DIR, exist_ok=True)
+    # targetFluid_pore = np.loadtxt('/home/aiadebimpe/PoreFlow/data/fPores_BentSepi_drainage_fluid_occupancy.dat', dtype=int)
+    # targetFluid_throat = np.loadtxt('/home/aiadebimpe/PoreFlow/data/fThroats_BentSepi_drainage_fluid_occupancy.dat', dtype=int)
+    # targetFluid = np.zeros_like(self.fluid)
+    # targetFluid[self.poreList] = (targetFluid_pore==2)
+    # targetFluid[self.tList] = (targetFluid_throat==2)
+    
     while self.filling:
         self.oldSatW = self.satW
         __PDrainage__(self)
+        
+        #MAD = np.sum(np.abs(self.fluid-targetFluid)*self.volarray)/np.sum(self.volarray)*100
+        #print(self.capPresMax, targetFluid.sum(), self.fluid.sum(), MAD)
+        # with open(os.path.join(MEMORY_DIR, f"drainage_{self.capPresMax}.pkl"),"wb") as f:
+            # dill.dump(self, f)
+        
         if (self.PcTarget > self.maxPc-0.001) or (
                 self.satW < self.finalSat+0.00001):
             self.filling = False
@@ -132,6 +146,9 @@ def drainage(self):
             self.minDeltaPc+abs(self.PcTarget)*self.deltaPcFraction))
         self.SwTarget = max(self.finalSat-1e-15, round((
             self.satW-self.dSw*0.75)/self.dSw)*self.dSw)
+
+        
+        
 
         if len(self.ElemToFill) == 0:
             self.filling = False
@@ -166,6 +183,7 @@ def drainage(self):
     do.__finitCornerApex__(self, self.capPresMax)
     print('Time spent for the drainage process: ', time() - start)        
     print('==========================================================\n\n')
+<<<<<<< Updated upstream
 
     if self.saveDrainage:
         import dill
@@ -175,6 +193,8 @@ def drainage(self):
             dill.dump(self, f)
 
     print(f'no of pops: {self.pop}, no of updates: {self.update}')
+=======
+>>>>>>> Stashed changes
     
 
 def popUpdateOilInj(self):
