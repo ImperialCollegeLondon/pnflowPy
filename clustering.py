@@ -52,93 +52,74 @@ class Cluster():
     def items(self):
         return zip(self.keys, self.values)
     
-    def clustering(self, mem, arrDict, Pc, cluster_ID, cluster, trapped,        
+    def clustering(self, mem, arrDict, Pc, cluster_ID, trapped,        
                    updatePcClustConToInlet):
         oldkeys = cluster_ID[mem]
         oldMem = mem[oldkeys>=0]
         oldkeys = oldkeys[oldkeys>=0]
-        cluster.members[oldkeys, oldMem] = False #uncluster previously clustered elements
+        self.members[oldkeys, oldMem] = False #uncluster previously clustered elements
         arrDictKeys = np.fromiter(arrDict.keys(), dtype=int)
-        try:
-            oldkeys = oldkeys[oldkeys>0]
-            assert oldkeys.size==0
-        except AssertionError:
-            oldkeys = np.array(list(set(oldkeys)))
-            availClust = oldkeys[~cluster.members[oldkeys].any(axis=1)] #newly available clusters
-            cluster.availableID.update(np.setdiff1d(availClust,self.availableID))
-            try:
-                assert arrDictKeys.size>1
-                arrDictKeys = arrDictKeys[arrDictKeys.argsort()]
-            except AssertionError:
-                pass                
-       
+        oldkeys = oldkeys[oldkeys>0]
+        if oldkeys.size>0:
+            oldkeys = np.unique(oldkeys)
+            availClust = oldkeys[~self.members[oldkeys].any(axis=1)] #newly available clusters
+            newID = np.setdiff1d(availClust,self.availableID)
+            self.availableID.update(newID)
+            arrDictKeys.sort()
+           
         for k in arrDictKeys:
             members = self.obj.elementListS[arrDict[k]['members']]
-            try:
-                assert arrDict[k]['connStatus']
+            if arrDict[k]['connStatus']:
                 cluster_ID[members] = 0
-                cluster.members[0][members] = True
+                self.members[0][members] = True
                 trapped[members] = False
-                cluster.clustConToExit[0] = True
-                cluster.trappedStatus[0] = False
-                cluster.connected[0] = True
-            except AssertionError:
-                try:
-                    ct = cluster.availableID.pop(0)
-                except IndexError:
+                self.clustConToExit[0] = True
+                self.trappedStatus[0] = False
+                self.connected[0] = True
+            else:
+                if len(self.availableID)==0:
                     # double previous size/add 500 new clusters
-                    oldSize = cluster.pc.size
+                    oldSize = self.pc.size
                     addSize = min(oldSize, 200)
-                    self.resizeClusters(addSize, cluster)
-                    id = np.setdiff1d(np.where(cluster.size==0)[0], cluster.availableID)
-                    cluster.availableID.update(id[id>0])
-                    ct = cluster.availableID.pop(0)
+                    self.resizeClusters(addSize, self)
+                    id = np.setdiff1d(np.where(self.size==0)[0], self.availableID)
+                    self.availableID.update(id[id>0])
 
+                ct = self.availableID.pop(0)
                 cluster_ID[members] = ct
-                cluster.members[ct][members] = True
-                cluster[ct] = {'key':ct, }
-                cluster.pc[ct] = Pc
+                self.members[ct][members] = True
+                self[ct] = {'key':ct, }
+                self.pc[ct] = Pc
                 trapped[members] = arrDict[k]['trappedStatus']
-                cluster.clustConToExit[ct] = arrDict[k]['members'][self.obj.conTToExit].any()
-                cluster.trappedStatus[ct] = arrDict[k]['trappedStatus']
-                cluster.connected[ct] = False
+                self.clustConToExit[ct] = arrDict[k]['members'][self.obj.conTToExit].any()
+                self.trappedStatus[ct] = arrDict[k]['trappedStatus']
+                self.connected[ct] = False
                 
-        try:
-            assert updatePcClustConToInlet
-            cluster.pc[cluster.clustConToExit] = Pc
-        except AssertionError:
-            pass
+        if updatePcClustConToInlet:
+            self.pc[self.clustConToExit] = Pc
 
         return
     
-    def resizeClusters(self, size, cluster):
-        cluster.members = np.vstack(
-            (cluster.members, np.zeros([size,self.obj.totElements], dtype=bool)))
-        cluster.pc = np.concatenate((cluster.pc, np.zeros(size)))
-        cluster.trappedStatus = np.concatenate(
-            (cluster.trappedStatus, np.zeros(size, dtype=bool)))
-        cluster.connected = np.concatenate(
-            (cluster.connected, np.zeros(size, dtype=bool)))
-        cluster.clustConToExit = np.concatenate(
-            (cluster.clustConToExit, np.zeros(size, dtype=bool)))
+    def resizeClusters(self, size):
+        self.members = np.vstack(
+            (self.members, np.zeros([size,self.obj.totElements], dtype=bool)))
+        self.pc = np.concatenate((self.pc, np.zeros(size)))
+        self.trappedStatus = np.concatenate(
+            (self.trappedStatus, np.zeros(size, dtype=bool)))
+        self.connected = np.concatenate(
+            (self.connected, np.zeros(size, dtype=bool)))
+        self.clustConToExit = np.concatenate(
+            (self.clustConToExit, np.zeros(size, dtype=bool)))
         for c in np.arange(len(self.keys), self.pc.size):
             self[c] = {'key': c}
             
             
     def updateNeighMatrix(self, other, cond=None):
         '''This updates the neighMatrix!!! might be later revised!!!'''
-        try:
-            assert cond is None
+        if cond is None:
             cond = np.ones(other.nThroats, dtype=bool)
-        except AssertionError:
-            pass
-
-        try:
-            assert self.fluid==1
-            cluster_ID = other.clusterNW_ID
-        except AssertionError:
-            cluster_ID = other.clusterW_ID
-       
+        
+        cluster_ID =  other.clusterNW_ID if self.fluid==1 else other.clusterW_ID
         def _f(cond):
             P1array = other.P1array[cond]
             P2array = other.P2array[cond]
@@ -163,11 +144,10 @@ class Cluster():
                     condP2_P2, condP2_T, condP1_P1_T, condP2_P2_T, P1array, P2array, tList)
         
         while True:
-            try:
-                (clustP1, clustP2, clustT, condP1_P1, condP1_T, 
-                condP2_P2, condP2_T, condP1_P1_T, condP2_P2_T,
-                P1array, P2array, tList) = _f(cond)
-                assert condP1_P1_T.any() or condP2_P2_T.any()
+            (clustP1, clustP2, clustT, condP1_P1, condP1_T, 
+            condP2_P2, condP2_T, condP1_P1_T, condP2_P2_T,
+            P1array, P2array, tList) = _f(cond)
+            if condP1_P1_T.any() or condP2_P2_T.any():
                 arr = np.sort(np.concatenate((
                     np.array([clustP1[condP1_P1_T], clustT[condP1_P1_T]]).T,
                     np.array([clustP2[condP2_P2_T], clustT[condP2_P2_T]]).T)), axis=1)
@@ -179,7 +159,7 @@ class Cluster():
                     
                 neigh = neigh|self.members[_arr].any(axis=0)
                 cond = cond | neigh[other.tList]
-            except AssertionError:
+            else:
                 keysToUpdate = np.unique(cluster_ID[other.tList[cond]])
                 keysToUpdate = keysToUpdate[keysToUpdate>=0]
                 break

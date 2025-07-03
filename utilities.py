@@ -20,26 +20,6 @@ class Computations():
 def matrixSolver(Amatrix, Cmatrix) -> np.array:
     return Solver(Amatrix, Cmatrix).solve()
 
-def computegLOld(self, g) -> np.array:
-    gL = np.zeros(self.nThroats)
-    gP1 = g[self.P1array]
-    gP2 = g[self.P2array]
-    gT  = g[self.tList]
-
-    cond = (gT > 0.0) & ((gP1>0) | (self.P1array<1)) & ((gP2>0) | (self.P2array<1))
-    cond3 = cond & (gP1>0) & (gP2>0)
-    cond2 = cond & (gP1==0) & (gP2>0) & (self.LP2array_mod>0)
-    cond1 = cond & (gP1>0) & (gP2==0) & (self.LP1array_mod>0)
-
-    gL[cond3] = 1.0/(self.LP1array_mod[cond3]/gP1[cond3] + 
-                     self.LTarray_mod[cond3]/gT[cond3] + 
-                     self.LP2array_mod[cond3]/gP2[cond3])
-    gL[cond2] = 1.0/(self.LTarray_mod[cond2]/gT[cond2] + 
-                     self.LP2array_mod[cond2]/gP2[cond2])
-    gL[cond1] = 1.0/(self.LTarray_mod[cond1]/gT[cond1] + 
-                     self.LP1array_mod[cond1]/gP1[cond1])
-    return gL
-
 
 def computegL(self, g) -> np.array:
     return compute_gL_numba(
@@ -137,7 +117,7 @@ def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False
                 cluster.availableID.update(availClust)
         else:
             members = self.elementListS[members]
-            cluster.clustering(members, arrDict, Pc, cluster_ID, cluster, trapped, 
+            cluster.clustering(members, arrDict, Pc, cluster_ID, trapped, 
                                updatePcClustConToInlet)
 
     except AttributeError:
@@ -147,175 +127,7 @@ def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False
         return
     else:
         return mem
-
-
-
-def check_Trapping_ClusteringOld(self, arr, notdone, fluid, Pc, updateCluster=False, 
-                                updateConnectivity=False, updatePcClustConToInlet=True):
-    i = 0
-    members = np.zeros(self.totElements, dtype='bool')
-    arrDict = {}
-    arrr = np.zeros(self.totElements, dtype='bool')
-    connectedCluster = []
     
-    while True:
-        try:
-            i += 1
-            ii = arr[0]
-            done = np.zeros(self.totElements, dtype='bool')
-            notdone[ii] = False
-            done[ii] = True
-            arrr[ii] = True
-            trappedStatus, connStatus = True, False
-            try:
-                arrr[self.PTConData[ii]] = True
-                ii = self.elementListS[(arrr&notdone)]
-                try:
-                    assert ii.size > 0
-                    done[ii] = True
-                    notdone[ii] = False
-                except AssertionError:
-                    cond1, cond2 = self.toInBdr[done].any(), self.toOutBdr[done].any()
-                    assert cond1 or cond2
-                    trappedStatus = False
-                    #assert not quickTrapping
-                    assert cond1 and cond2
-                    connStatus = True
-                    connectedCluster.append(i)
-                    arrDict[i] = {'members': done, 'connStatus': connStatus, 
-                                    'trappedStatus': trappedStatus}
-                    arr = arr[notdone[arr]]  # -- just added this line
-                    continue
-            except (AssertionError, IndexError):
-                pass
-            while True:
-                try:
-                    ii = ii-self.nPores-1
-                    p1, p2 = self.P1array[ii], self.P2array[ii]
-                    arrr[p1[p1>0]] = True
-                    arrr[p2[p2>0]] = True
-                    ii = self.elementListS[(arrr&notdone)]
-                    assert ii.size > 0
-                    notdone[ii] = False
-                    done[ii] = True
-                    tt = self.PTConnections[ii][self.PTValid[ii]]
-                    arrr[tt] = True
-                    ii = self.elementListS[(arrr&notdone)]
-                    assert ii.size > 0
-                    notdone[ii] = False
-                    done[ii] = True
-                except AssertionError:
-                    try:
-                        assert self.toInlet[done].any() or self.toOutlet[done].any()
-                        trappedStatus = False
-                    except AssertionError:
-                        pass
-                    try:
-                        assert self.toInBdr[done].any() and self.toOutBdr[done].any()
-                        connStatus = True
-                        connectedCluster.append(i)
-                    except AssertionError:
-                        pass
-                    arrDict[i] = {'members': done, 'connStatus': connStatus, 
-                                    'trappedStatus': trappedStatus}
-                    arr = arr[notdone[arr]]
-                    members[done] = True
-                    break
-        except IndexError:
-            break
-
-    try:
-        lenClust = len(connectedCluster)
-        if lenClust==1:
-            mem = arrDict[connectedCluster[0]]['members']
-        elif lenClust==0:
-            mem = np.zeros(self.totElements, dtype=bool)
-        else:
-            mem = reduce(np.logical_or, (arrDict[k]['members'] for k in connectedCluster))
-
-        try:
-            assert fluid==0
-            cluster_ID, cluster, trapped = self.clusterW_ID, self.clusterW, self.trappedW
-        except AssertionError:
-            cluster_ID, cluster, trapped = self.clusterNW_ID, self.clusterNW, self.trappedNW
-
-        #from IPython import embed; embed()
-
-        assert not updateCluster
-        cond = mem.any()
-        cluster.connected[0] = cond
-        cluster.clustConToExit[0] = cond
-        cluster.trappedStatus[0] = not cond
-        try:
-            ids = cluster_ID[mem][cluster_ID[mem]>=0]
-            assert not (ids==0).all()
-            mem1 = self.elementListS[mem][cluster_ID[mem]>=0]
-            mem1 = mem1[ids!=0]
-            ids = ids[ids!=0]
-            ''' ensure connected cluster is cluster 0 '''
-            cluster_ID[mem1] = 0
-            cluster.members[:, mem1] = False
-            cluster.members[0][mem1] = True
-            trapped[mem1] = False
-            ''' check which clusters are truly empty '''
-            availClust = ids[~cluster.members[ids].any(axis=1)]
-            cluster.availableID.update(availClust)
-        except AssertionError:
-            pass
-    except AttributeError:
-        pass
-    except AssertionError:
-        members = self.elementListS[members]
-        cluster.clustering(members, arrDict, Pc, cluster_ID, cluster, 
-                            trapped, updatePcClustConToInlet)
-    try:
-        assert not updateConnectivity
-        return
-    except AssertionError:
-        return mem
-
-    
-def __getValueOld__(self, arrr: np.ndarray, gL: np.ndarray) -> tuple[csr_matrix, np.ndarray]:
-    indP = self.poreList[arrr[self.poreList]]
-    c = indP.size
-    mList = -np.ones(self.nPores+2, dtype='int')
-    mList[indP] = np.arange(c)
-
-    arrrT = arrr[self.tList]
-    arrrP1, arrrP2 = arrr[self.P1array], arrr[self.P2array]
-
-    ''' throats within the calcBox '''
-    cond1 = arrrT & arrrP1 & arrrP2
-    #arrr[self.tList[cond1]] = False
-    t_1 = self.throatList[cond1]
-    P1_1, P2_1 = mList[self.P1array[cond1]], mList[self.P2array[cond1]]
-    cond_1 = gL[t_1-1]
-
-    ''' throats connected to the inletBdr '''
-    cond2a = arrrT & (self.isOnInletBdr[self.P1array]&arrrP2)
-    cond2b = arrrT & (self.isOnInletBdr[self.P2array]&arrrP1)
-    indP2 = np.concatenate((self.P2array[cond2a], self.P1array[cond2b]))
-    P_2 = mList[indP2]
-    t_2 = np.concatenate((self.throatList[cond2a], self.throatList[cond2b]))
-    cond_2 = gL[t_2-1]
-    Cmatrix = np.bincount(P_2, cond_2, c) #set up the Cmatrix
-
-    ''' throats connected to the outletBdr '''
-    cond3a = arrrT & (self.isOnOutletBdr[self.P1array]&arrrP2)
-    cond3b = arrrT & (self.isOnOutletBdr[self.P2array]&arrrP1)
-    indP3 = np.concatenate((self.P2array[cond3a], self.P1array[cond3b]))
-    P_3 = mList[indP3]
-    t_3 = np.concatenate((self.throatList[cond3a], self.throatList[cond3b]))
-    cond_3 = gL[t_3-1]
-
-    ''' set up the Amatrix '''
-    row = np.concatenate((P1_1, P2_1, P1_1, P2_1, P_2, P_3))
-    col = np.concatenate((P2_1, P1_1, P1_1, P2_1, P_2, P_3))
-    data = np.concatenate((-cond_1, -cond_1, cond_1, cond_1, cond_2, cond_3))
-    Amatrix = csr_matrix((data, (row, col)), shape=(c, c), dtype=float)
-
-    return Amatrix, Cmatrix
-
 
 @njit
 def build_Amatrix_data(
@@ -398,6 +210,7 @@ def __getValue__(self, arrr, gL):
     return Amatrix, Cmatrix
 
 
+@njit
 def Saturation(self, AreaWP, AreaSP):
     satWP = AreaWP/AreaSP
     num = (satWP[self.isinsideBox]*self.volarray[self.isinsideBox]).sum()
@@ -582,263 +395,193 @@ def __computeFd__(self, arrr, arrBeta) -> np.array:
     return Fd
 
 
+@njit(parallel=True)
+def create_films_numba(
+    arr, arrr, halfAng, Pc, m_exists, m_inited, m_initOrMaxPcHist, m_initOrMinApexDistHist, advPc, recPc, m_initedApexDist, is_oil_inj, sigma, thetaAdvAng, thetaRecAng):
+
+    n = arr.size
+    nCorners = m_exists.shape[1]
+    is_square = (nCorners == 4)
+    for i in prange(n):
+        idx = arr[i]
+
+        if not arrr[i]:
+            continue
+
+        conAng = thetaRecAng[idx] if is_oil_inj else thetaAdvAng[idx]
+        Pc_val = Pc[i]
+        sigma_over_Pc = sigma / Pc_val
+        for j in range(nCorners):
+            if m_exists[i, j] and m_inited[i, j]:
+                continue
+
+            halfAng_ij = halfAng[0, j] if is_square else halfAng[i, j]
+
+            if conAng >= (np.pi / 2.0 - halfAng_ij):
+                continue
+
+            m_exists[i, j] = True
+            
+            cosTerm = np.cos(conAng + halfAng_ij)
+            sinTerm = np.sin(halfAng_ij)
+            initedApexDist = max(sigma_over_Pc * cosTerm / sinTerm, 0.0)
+            m_initedApexDist[i, j] = initedApexDist
+
+            if initedApexDist != 0.0:
+                advPc[i, j] = sigma * np.cos(min(np.pi, thetaAdvAng[idx]) + halfAng_ij) / (initedApexDist * sinTerm)
+                recPc[i, j] = sigma * np.cos(min(np.pi, thetaRecAng[idx]) + halfAng_ij) / (initedApexDist * sinTerm)
+            else:
+                advPc[i, j] = 0.0
+                recPc[i, j] = 0.0
+
+            m_inited[i, j] = True
+
+            if Pc_val > m_initOrMaxPcHist[i, j]:
+                m_initOrMinApexDistHist[i, j] = initedApexDist
+                m_initOrMaxPcHist[i, j] = Pc_val
+
+
+
 def createFilms(self, arr, arrr, halfAng, Pc, m_exists,
-            m_inited, m_initOrMaxPcHist, m_initOrMinApexDistHist, advPc,
-            recPc, m_initedApexDist):
+                m_inited, m_initOrMaxPcHist, m_initOrMinApexDistHist, advPc,
+                recPc, m_initedApexDist):
+    create_films_numba(
+        arr, arrr, halfAng, Pc,
+        m_exists, m_inited, m_initOrMaxPcHist, m_initOrMinApexDistHist,
+        advPc, recPc, m_initedApexDist, self.is_oil_inj,
+        self.sigma, self.thetaAdvAng, self.thetaRecAng
+    )
 
-    arrr = arrr[:, np.newaxis]
-    Pc = Pc[:, np.newaxis]
-    cond = (~(m_exists & m_inited) & arrr)
 
-    try:
-        assert cond.sum() > 0
-        conAng = self.thetaRecAng[arr, np.newaxis] if self.is_oil_inj else self.thetaAdvAng[
-            arr, np.newaxis]
-        condf = cond & (conAng < (np.pi/2 - halfAng))
-        assert condf.sum() > 0
-        m_exists[condf] = True
-        m_initedApexDist[condf] = np.maximum((self.sigma/Pc*np.cos(
-            conAng+halfAng)/np.sin(halfAng))[condf], 0.0)
+@njit
+def corner_apex_numba(
+    arr, arrr, halfAng, Pc, _conAng, m_exists,
+    m_initOrMaxPcHist, m_initOrMinApexDistHist, advPc,
+    recPc, apexDist, initedApexDist, trappedW, trappedNW, clusterW_pc, clusterNW_pc, 
+    clusterW_ID, clusterNW_ID, sigma, thetaAdvAng, thetaRecAng, 
+    delta, overidetrapping, MOLECULAR_LENGTH, is_square):
 
-        advPc[condf] = np.where(m_initedApexDist[
-            condf] != 0.0, self.sigma*np.cos((np.minimum(np.pi, self.thetaAdvAng[
-            arr, np.newaxis])+halfAng)[condf])/(
-            m_initedApexDist*np.sin(halfAng))[condf], 0.0)
+    n = arr.size
+    nCorners = m_exists.shape[1]
+    if is_square is None: is_square = (nCorners == 4)
+    conAng = np.empty(m_exists.shape, dtype=np.float64)
 
-        recPc[condf] = np.where(m_initedApexDist[
-            condf] != 0.0, self.sigma*np.cos((np.minimum(np.pi, self.thetaRecAng[
-            arr, np.newaxis])+halfAng)[condf])/(
-            m_initedApexDist*np.sin(halfAng))[condf], 0.0)
+    for i in prange(n):
         
-        m_inited[condf] = True
-        condu = condf & (Pc > m_initOrMaxPcHist)
-        assert condu.sum() > 0
-        m_initOrMinApexDistHist[condu] = m_initedApexDist[condu]
-        m_initOrMaxPcHist[condu] = (Pc*condu)[condu]
-    except AssertionError:
-        pass
+        idx = arr[i]
+        if not arrr[i]:
+            continue
 
+        Pc_val = Pc[0] if Pc.size==1 else Pc[i]
+            
+        sigma_over_Pc = sigma / Pc_val
+        halfAng_i = halfAng[0] if is_square else halfAng[i]
+
+        if not overidetrapping:
+            apexDist[i] = initedApexDist[i]
+            trapped = False
+            if trappedW[idx]:
+                cidx = clusterW_ID[idx]
+                trappedPc = clusterW_pc[cidx]
+                trapped = True
+            elif trappedNW[idx]:
+                cidx = clusterNW_ID[idx]
+                trappedPc = clusterNW_pc[cidx]
+                trapped = True
+
+            if trapped:
+                for j in range(nCorners):
+                    apexDist[i, j] = initedApexDist[i, j]
+                    part = trappedPc * initedApexDist[i, j] * np.sin(halfAng_i[j]) / sigma
+                    part = min(0.999999, max(-0.999999, part))
+                    conAng[i, j] = max(min(np.arccos(part) - halfAng_i[j], np.pi), 0.0)
+
+        for j in range(nCorners):
+            halfAng_ij = halfAng_i[j]
+            sinHalfAng_ij = np.sin(halfAng_ij)
+            initedApexDist_ij = initedApexDist[i, j]
+            conAng_ij = _conAng[idx]
+
+            # cond0
+            if not m_exists[i, j]:
+                if overidetrapping:
+                    apexDist_ij = MOLECULAR_LENGTH
+
+            # cond1
+            elif (advPc[i, j] - delta <= Pc_val) and (Pc_val <= recPc[i, j] + delta):
+                part = max(
+                    min(initedApexDist_ij * sinHalfAng_ij / sigma_over_Pc, 0.999999), -0.999999)
+                conAng_ij = max(min(np.arccos(part) - halfAng_ij, np.pi), 0.0)
+                apexDist_ij = initedApexDist_ij
+
+            # cond2
+            elif Pc_val < advPc[i, j]:
+                conAng_ij = thetaAdvAng[idx]
+                apexDist_ij = sigma_over_Pc * np.cos(conAng_ij+halfAng_ij)/sinHalfAng_ij
+
+                if apexDist_ij < initedApexDist_ij:
+                    part = max(
+                        min(initedApexDist_ij * sinHalfAng_ij / sigma_over_Pc, 0.999999), -0.999999)
+                    conAng_ij = max(min(np.arccos(part) - halfAng_ij, np.pi), 0.0)
+                    apexDist_ij = initedApexDist_ij
+            
+            # cond3
+            elif Pc_val > m_initOrMaxPcHist[i, j]:
+                conAng_ij = min(np.pi, thetaRecAng[idx])
+                apexDist_ij = sigma_over_Pc*np.cos(conAng_ij+halfAng_ij)/sinHalfAng_ij
+
+            # cond4
+            elif Pc_val > recPc[i, j]:
+                conAng_ij = thetaRecAng[idx]
+                apexDist_ij = sigma_over_Pc*np.cos(conAng_ij+halfAng_ij)/sinHalfAng_ij
+                m_initOrMinApexDistHist_ij = m_initOrMinApexDistHist[i, j]
+
+                if apexDist_ij > initedApexDist_ij:
+                    part = max(
+                        min(initedApexDist_ij * sinHalfAng_ij / sigma_over_Pc, 0.999999), -0.999999)
+                    conAng_ij = max(min(np.arccos(part) - halfAng_ij, np.pi), 0.0)
+                    apexDist_ij = initedApexDist_ij
+
+                elif apexDist_ij < m_initOrMinApexDistHist_ij:
+                    part = max(
+                        min(m_initOrMinApexDistHist_ij * sinHalfAng_ij / sigma_over_Pc, 0.999999), -0.999999)
+                    conAng_ij = max(min(np.arccos(part) - halfAng_ij, np.pi), 0.0)
+                    apexDist_ij = m_initOrMinApexDistHist_ij
+
+            # cond5
+            else:
+                apexDist_ij = sigma_over_Pc*np.cos(conAng_ij+halfAng_ij)/sinHalfAng_ij
+
+            conAng[i, j] = conAng_ij
+            apexDist[i, j] = apexDist_ij
+
+    return conAng, apexDist
+    
 
 def cornerApex(self, arr, arrr, halfAng, Pc, conAng, m_exists,
             m_initOrMaxPcHist, m_initOrMinApexDistHist, advPc,
             recPc, apexDist, initedApexDist, accurat=False,
-            overidetrapping=False):
-    warnings.simplefilter(action='ignore', category=RuntimeWarning)
-
-    ''' update the apex dist and contact angle '''
-    apexDist[~m_exists & arrr] = self.MOLECULAR_LENGTH
+            overidetrapping=False, is_square=None):
+    
     delta = 0.0 if accurat else self._delta
-    conAng = np.ones(m_exists.shape)*conAng[arr]
-
-    try:
-        assert not overidetrapping
-        apexDist[:, arrr] = initedApexDist[:, arrr]
-        assert self.trappedW[arr[arrr]].sum()+self.trappedNW[arr[arrr]].sum()>0
-        arrr1 = arrr & self.trappedW[arr]
-        arrr2 = arrr & ~self.trappedW[arr] & self.trappedNW[arr]
-        trappedPc = np.zeros(arr.size)
-        trappedPc[arrr1] = np.array(self.clusterW.pc)[self.clusterW_ID[arr[arrr1]]]
-        trappedPc[arrr2] = np.array(self.clusterNW.pc)[self.clusterNW_ID[arr[arrr2]]]
-        cond = (self.trappedW[arr]|self.trappedNW[arr])
-        part = np.clip((trappedPc*initedApexDist*np.sin(halfAng)).T[cond]/self.sigma, 
-                        -0.999999, 0.999999)
-        try:
-            conAng.T[cond] = np.clip(np.arccos(part)-halfAng.T[cond], 0.0, np.pi)
-        except IndexError:
-            conAng.T[cond] = np.clip(np.arccos(part)-halfAng.T, 0.0, np.pi)
-    except AssertionError:
-        pass
-    
-    ''' condition 1 '''
-    cond1a = m_exists & (advPc-delta <= Pc) & (Pc <= recPc+delta)
-    cond1 = cond1a & arrr
-    try:
-        assert cond1.sum() > 0
-        part = np.clip(Pc*initedApexDist*np.sin(halfAng)/self.sigma, -0.999999, 0.999999)
-        hingAng = np.clip((np.arccos(part)-halfAng)[cond1], -self._delta, np.pi+self._delta)
-        conAng[cond1] = np.clip(hingAng, 0.0, np.pi)
-        apexDist[cond1] = initedApexDist[cond1]
-    except AssertionError:
-        pass
-
-    ''' condition 2 '''
-    cond2a = m_exists & ~cond1a & (Pc < advPc)
-    cond2 = cond2a & arrr
-    try:
-        assert cond2.sum() > 0
-        conAng[cond2] = (self.thetaAdvAng[arr]*cond2)[cond2]
-        apexDist[cond2] = (self.sigma/Pc*np.cos(
-            conAng+halfAng)/np.sin(halfAng))[cond2]
-
-        cond2b = (apexDist < initedApexDist) & cond2
-        assert cond2b.sum() > 0
-        part = np.clip(Pc*initedApexDist*np.sin(halfAng)/self.sigma, -0.999999, 0.999999)
-        hingAng = np.clip((np.arccos(part)-halfAng)[cond2b], 0.0, np.pi)
-        
-        conAng[cond2b] = hingAng
-        apexDist[cond2b] = initedApexDist[cond2b]
-    except AssertionError:
-        pass
-
-    ''' condition 3 '''
-    cond3a = m_exists & ~cond1a & ~cond2a & (Pc > m_initOrMaxPcHist)
-    cond3 = cond3a & arrr
-    try:
-        assert cond3.sum() > 0
-        conAng[cond3] = np.minimum(np.pi, (self.thetaRecAng[arr]*cond3)[cond3])
-        apexDist[cond3] = (self.sigma/Pc*np.cos(
-            conAng+halfAng)/np.sin(halfAng))[cond3]
-    except AssertionError:
-        pass
-
-    ''' condition 4 '''
-    cond4a = m_exists & ~cond1 & ~cond2a & ~cond3a & (Pc > recPc)
-    cond4 = (cond4a*arrr)
-    try:
-        assert cond4.sum() > 0
-        conAng[cond4] = (self.thetaRecAng[arr]*cond4)[cond4]
-        apexDist[cond4] = (self.sigma/Pc*np.cos(conAng+halfAng)/np.sin(halfAng))[cond4]
-        cond4b = cond4 & (apexDist > initedApexDist)
-        cond4c = cond4 & (~cond4b) & (apexDist < m_initOrMinApexDistHist)
-        try:
-            assert cond4b.sum() > 0
-            part = np.clip(Pc*initedApexDist*np.sin(halfAng)/self.sigma, -0.999999, 0.999999)
-            hingAng = np.clip((np.arccos(part)-halfAng)[cond4b], 0.0, np.pi)
-            conAng[cond4b] = hingAng
-            apexDist[cond4b] = initedApexDist[cond4b]
-        except AssertionError:
-            pass
-        try:
-            assert cond4c.sum() > 0
-            part = np.clip(Pc*m_initOrMinApexDistHist*np.sin(halfAng)/self.sigma, 
-                            -0.999999, 0.999999)
-            hingAng = np.clip((np.arccos(part)-halfAng)[cond4c], 0.0, np.pi)
-            conAng[cond4c] = hingAng
-            apexDist[cond4c] = m_initOrMinApexDistHist[cond4c]
-        except AssertionError:
-            pass
-    except AssertionError:
-        pass
-
-    ''' condition 5 '''
-    cond5 = m_exists & ~cond1 & ~cond2 & ~cond3a & ~cond4a
-    cond5 = (cond5*arrr)
-    try:
-        assert cond5.sum() > 0
-        if not self.is_oil_inj: print('  cond5  ')
-        apexDist[cond5] = ((self.sigma/Pc)*np.cos(
-            conAng+halfAng)/np.sin(halfAng))[cond5]
-    except AssertionError:
-        pass
-    
-    return conAng.T, apexDist.T
+    Pc = np.atleast_1d(Pc)
+    #try:
+    return corner_apex_numba(
+        arr, arrr, halfAng, Pc, conAng, m_exists,
+        m_initOrMaxPcHist, m_initOrMinApexDistHist, advPc,
+        recPc, apexDist, initedApexDist, self.trappedW, self.trappedNW, 
+        self.clusterW.pc, self.clusterNW.pc, self.clusterW_ID, self.clusterNW_ID, 
+        self.sigma, self.thetaAdvAng, self.thetaRecAng, 
+        delta,  overidetrapping, self.MOLECULAR_LENGTH, is_square=is_square)                                                
 
 
-def calcAreaW(self, arrr, halfAng, conAng, m_exists, apexDist):
-    ''' -- obtain corner conductance -- '''
-    dimlessCornerA = np.zeros(m_exists.shape)
-
-    cond1 = m_exists & (np.abs(conAng+halfAng-np.pi/2) < 0.01)
-    try:
-        dimlessCornerA[cond1] = np.sin(halfAng[cond1])*np.cos(halfAng[cond1])
-    except IndexError:
-        dimlessCornerA[cond1] = (np.sin(halfAng)*np.cos(halfAng)*cond1)[cond1]
-
-    cond2 = m_exists & (np.abs(conAng+halfAng-np.pi/2) >= 0.01)
-    dimlessCornerA[cond2] = pow((np.sin(halfAng)/np.cos(
-        conAng + halfAng))[cond2], 2.0)*(np.cos(conAng)*np.cos(
-        conAng + halfAng)/np.sin(halfAng)+conAng+halfAng-np.pi/2)[cond2]
-    
-    cornerGstar = (np.sin(halfAng)*np.cos(halfAng)/(
-        4*pow(1+np.sin(halfAng), 2))*m_exists)
-    cornerG = cornerGstar.copy()
-    
-    cond3 = m_exists & (np.abs(conAng+halfAng-np.pi/2) > 0.01)
-    cornerG[cond3] = dimlessCornerA[cond3]/(4.0*pow((1 - np.sin(
-        halfAng)/np.cos(conAng + halfAng)*(
-            conAng + halfAng - np.pi/2))[cond3], 2.0))
-
-    cFactor = np.where(cornerG != 0.0, 0.364+0.28*cornerGstar/cornerG, 0.0)
-    conductance = cFactor*pow(apexDist, 4)*pow(
-        dimlessCornerA, 2)*cornerG/self.muw
-    area = apexDist*apexDist*dimlessCornerA
-
-    cornerCond = conductance.sum(axis=1)
-    cornerArea = area.sum(axis=1)
-
-    return cornerArea[arrr], cornerCond[arrr]
-
-
-def __finitCornerApex__(self, pc):
-    trapped = (self.trappedW | self.trappedNW)
-    arrr = self.connected
-    arrrS = arrr[self.elemSquare]
-    arrrT = arrr[self.elemTriangle]
-    
-    apexDist = np.zeros(self.cornExistsTr.T.shape)
-    finitCornerApex(
-        self, self.elemTriangle, arrrT, self.halfAnglesTr.T, pc,
-        self.cornExistsTr.T, self.initedTr.T, self.initOrMaxPcHistTr.T,
-        self.initOrMinApexDistHistTr.T, self.advPcTr.T,
-        self.recPcTr.T, apexDist, self.initedApexDistTr.T, trapped)
-
-    apexDist = np.zeros(self.cornExistsSq.T.shape)
-    finitCornerApex(
-        self, self.elemSquare, arrrS, self.halfAnglesSq[:, np.newaxis], pc,
-        self.cornExistsSq.T, self.initedSq.T, self.initOrMaxPcHistSq.T,
-        self.initOrMinApexDistHistSq.T, self.advPcSq.T,
-        self.recPcSq.T, apexDist, self.initedApexDistSq.T, trapped)
-
-
-def __initCornerApex__(self):
-    trapped = (self.trappedW | self.trappedNW)
-    arrr = self.connected
-    arrrS = arrr[self.elemSquare]
-    arrrT = arrr[self.elemTriangle]
-    
-    initCornerApex(
-        self, self.elemTriangle, arrrT, self.halfAnglesTr, self.cornExistsTr, self.initedTr,
-        self.recPcTr, self.advPcTr, self.initedApexDistTr, trapped)
-
-    initCornerApex(
-        self, self.elemSquare, arrrS, self.halfAnglesSq, self.cornExistsSq, self.initedSq,
-        self.recPcSq, self.advPcSq, self.initedApexDistSq, trapped)
-
-    
-def finitCornerApex(self, arr, arrr, halfAng, Pc, m_exists,
-                m_inited, m_initOrMaxPcHist, m_initOrMinApexDistHist,
-                advPc, recPc, apexDist, m_initedApexDist, trapped):
-
-    cond = arrr & (m_inited | (~trapped[arr])) & m_exists
-    conAng = self.thetaRecAng.copy() if self.is_oil_inj else self.thetaAdvAng.copy()
-    conAng, apexDist = cornerApex(
-        self, arr, arrr, halfAng, Pc, conAng, 
-        cond, m_initOrMaxPcHist, m_initOrMinApexDistHist,
-        advPc, recPc, apexDist, m_initedApexDist, overidetrapping=True)
-    
-    apexDist = apexDist.T
-    recPc[cond] = self.sigma*np.cos((np.minimum(np.pi, self.thetaRecAng[
-        arr])+halfAng)[cond])/((apexDist*np.sin(halfAng))[cond])
-    advPc[cond] = self.sigma*np.cos((np.minimum(np.pi, self.thetaAdvAng[
-        arr])+halfAng)[cond])/((apexDist*np.sin(halfAng))[cond])
-
-    cond1 = cond & (Pc > m_initOrMaxPcHist)
-    m_initOrMinApexDistHist[cond1] = apexDist[cond1]
-    m_inited[cond] = False
-    m_initedApexDist[cond] = apexDist[cond]
-    
-    try:
-        m_initOrMaxPcHist[cond1] = Pc[cond1]
-    except (TypeError, IndexError):
-        m_initOrMaxPcHist[cond1] = Pc
 
 
 def initCornerApex(self, arr, arrr, halfAng, m_exists, m_inited,
                     recPc, advPc, m_initedApexDist, trapped):
 
     cond =  (m_exists & (arrr&~trapped[arr])[:, np.newaxis])
-    try:
-        assert cond.sum()>0
+    if cond.sum()>0:
         m_inited[cond] = True
         Pc =np.zeros_like(m_initedApexDist)
         Pc[cond] = self.sigma*np.cos(np.minimum(
@@ -849,8 +592,6 @@ def initCornerApex(self, arr, arrr, halfAng, m_exists, m_inited,
         advPc[cond] = self.sigma*np.cos(np.minimum(
             np.pi, ((self.thetaAdvAng[arr, np.newaxis]+halfAng)*cond)[cond]))/(
                 (m_initedApexDist*np.sin(halfAng))[cond])
-    except AssertionError:
-        pass
 
 
 def writeResult(self, result_str, Pc):

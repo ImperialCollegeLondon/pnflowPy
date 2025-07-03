@@ -126,53 +126,46 @@ def imbibition(self):
 
 def __PImbibition__(self):
     self.totNumFill = 0
-    while (self.PcTarget-1.0e-32 < self.capPresMin) & (
+    continue_to_fill = True
+    while (self.PcTarget-1.0e-32 < self.capPresMin) and (
             self.satW <= self.SwTarget):
         self.oldSatW = self.satW
         self.invInsideBox = 0
         self.cnt = 0
-        try:
-            while (self.invInsideBox < self.fillTarget) & (
-                len(self.ElemToFill) != 0) & (
-                    self.PcI[self.ElemToFill[0]] >= self.PcTarget):
-                try:
-                    assert not self.fillTillNWDisconnected
-                    popUpdateWaterInj(self)
-                except AssertionError:
-                    try:
-                        assert (self.clusterNW.members[0][self.conTToIn].any() and 
-                                self.clusterNW.members[0][self.conTToOutletBdr].any())
-                        popUpdateWaterInj(self)
-                    except AssertionError:
-                        self.filling = False
-                        self.PcTarget = self.capPresMin
-                        break
+        
+        while (self.invInsideBox < self.fillTarget) and (
+            len(self.ElemToFill) != 0) and (
+                self.PcI[self.ElemToFill[0]] >= self.PcTarget):
+            if not self.fillTillNWDisconnected or (
+                self.clusterNW.members[0][self.conTToIn].any() and 
+                self.clusterNW.members[0][self.conTToOutletBdr].any()):
+                popUpdateWaterInj(self)
+            else:
+                self.filling = False
+                self.PcTarget = self.capPresMin
+                break
 
-            assert (self.PcI[self.ElemToFill[0]] < self.PcTarget) & (
-                    self.capPresMin > self.PcTarget)
-            self.capPresMin = self.PcTarget
-        except IndexError:
+        if len(self.ElemToFill) == 0:
             self.capPresMin = min(self.capPresMin, self.PcTarget)
-        except AssertionError:
-            pass
+            continue_to_fill = False
+        elif (self.PcI[self.ElemToFill[0]] < self.PcTarget) and (
+            self.capPresMin > self.PcTarget):
+            self.capPresMin = self.PcTarget
 
         __CondTPImbibition__(self)
         self.satW = do.Saturation(self, self.areaWPhase, self.areaSPhase)
         self.totNumFill += self.cnt
-        try:
-            assert self.PcI[self.ElemToFill[0]] >= self.PcTarget
-            assert self.filling
-        except (AssertionError, IndexError):
+        if not continue_to_fill or not self.filling or (
+            self.PcI[self.ElemToFill[0]] < self.PcTarget):
             break
-    try:
-        assert (self.PcI[self.ElemToFill[0]] < self.PcTarget) & (
-            self.capPresMin > self.PcTarget)
-        self.capPresMin = self.PcTarget
-    except AssertionError:
-        self.PcTarget = self.capPresMin
-    except IndexError:
-        pass
 
+    if not continue_to_fill: pass
+    elif (self.PcI[self.ElemToFill[0]] < self.PcTarget) and (
+            self.capPresMin > self.PcTarget):
+        self.capPresMin = self.PcTarget
+    else:
+        self.PcTarget = self.capPresMin
+    
     __CondTPImbibition__(self)
     self.satW = do.Saturation(self, self.areaWPhase, self.areaSPhase)
     do.computePerm(self, self.capPresMin)
@@ -181,37 +174,34 @@ def __PImbibition__(self):
 
 def fillWithWater(self, k):
     self.fluid[k] = 0
-    try:
-        assert self.hasWFluid[k]
-    except AssertionError:
-        try:
-            neigh = self.elem[k].neighbours[self.elem[k].neighbours>0]
-            self.hasWFluid[k] = True
-            neighW = neigh[self.hasWFluid[neigh]]
-            ids = self.clusterW_ID[neighW]
-            ii = ids.min()
+    if self.hasWFluid[k]:
+        return
+    
+    neigh = self.elem[k].neighbours[self.elem[k].neighbours>0]
+    self.hasWFluid[k] = True
+    neighW = neigh[self.hasWFluid[neigh]]
+    ids = self.clusterW_ID[neighW]
+    if ids.size>0:
+        ii = ids.min()
 
-            ''' newly filled takes the properties of already filled neighbour '''
-            self.clusterW_ID[k] = ii
-            self.clusterW.members[ii,k] = True
-            self.connW[k] = self.clusterW[ii].connected
-            ids = ids[ids!=ii]                
-            assert ids.size>0
-
+        ''' newly filled takes the properties of already filled neighbour '''
+        self.clusterW_ID[k] = ii
+        self.clusterW.members[ii,k] = True
+        self.connW[k] = self.clusterW[ii].connected
+        ids = ids[ids!=ii]             
+        if ids.size>0:
             ''' need to coalesce '''
             mem = self.elementListS[self.clusterW.members[ids].any(axis=0)]
             self.clusterW.members[ii][mem] = True
             self.clusterW.members[ids] = False
             self.clusterW.availableID.update(ids)
             self.clusterW_ID[mem] = ii
-        except AssertionError:
-            pass
-        except ValueError:
-            do.check_Trapping_Clustering(
-                self, np.array([k]), self.hasWFluid.copy(), 0, self.capPresMin, 
-                True, False, True)
-            ii = self.clusterW_ID[k]
-            self.connW[k] = self.clusterW[ii].connected
+    else:
+        do.check_Trapping_Clustering(
+            self, np.array([k]), self.hasWFluid.copy(), 0, self.capPresMin, 
+            True, False, True)
+        ii = self.clusterW_ID[k]
+        self.connW[k] = self.clusterW[ii].connected
 
 
 def unfillWithOil(self, k, Pc, updateCluster=False, updateConnectivity=False, 
@@ -227,12 +217,9 @@ def unfillWithOil(self, k, Pc, updateCluster=False, updateConnectivity=False,
     do.check_Trapping_Clustering(
         self, neigh.copy(), self.hasNWFluid.copy(), 1, Pc, 
         updateCluster, updateConnectivity, updatePcClustConToInlet)
-    try:
-        assert updatePc
+    if updatePc:
         neighb = neigh[~self.trappedNW[neigh]]
         __computePc__(self, self.capPresMin, neighb)
-    except AssertionError:
-        pass
 
 
 def popUpdateWaterInj(self):
@@ -240,8 +227,7 @@ def popUpdateWaterInj(self):
     k = self.ElemToFill.pop(0)
     capPres = self.PcI[k]
     self.capPresMin = np.min([self.capPresMin, capPres])
-    try:
-        assert not self.trappedNW[k]
+    if not self.trappedNW[k]:
         fillWithWater(self, k)
         unfillWithOil(self, k, self.capPresMin, True)
         self.specialPcD[k] = self.capPresMin
@@ -249,8 +235,6 @@ def popUpdateWaterInj(self):
             self.porebodyPc[k]==capPres)+3*(self.snapoffPc[k]==capPres)
         self.cnt += 1
         self.invInsideBox += self.isinsideBox[k]
-    except AssertionError:
-        pass
     
 
 def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True, overrideTrapping=False):
@@ -269,15 +253,16 @@ def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True, overrideTrap
     
     if np.any(arrrS):
         curConAng = self.contactAng.copy()
-        apexDist = np.empty_like(self.hingAngSq.T)
+        halfAnglesSq = self.halfAnglesSq.reshape(1,-1)
+        apexDist = np.empty_like(self.hingAngSq)
         conAngPS, apexDistPS = do.cornerApex(
-            self, self.elemSquare, arrrS, self.halfAnglesSq[:, np.newaxis], Pc[self.elemSquare],
-            curConAng, self.cornExistsSq.T, self.initOrMaxPcHistSq.T,
-            self.initOrMinApexDistHistSq.T, self.advPcSq.T,
-            self.recPcSq.T, apexDist, self.initedApexDistSq.T)
+            self, self.elemSquare, arrrS, halfAnglesSq, Pc[self.elemSquare],
+            curConAng, self.cornExistsSq, self.initOrMaxPcHistSq,
+            self.initOrMinApexDistHistSq, self.advPcSq,
+            self.recPcSq, apexDist, self.initedApexDistSq)
         
         cornA, cornG = do.calcAreaW(
-            self, arrrS, self.halfAnglesSq, conAngPS, self.cornExistsSq, apexDistPS)
+            self, arrrS, halfAnglesSq, conAngPS, self.cornExistsSq, apexDistPS)
         
         elemSquare = self.elemSquare[arrrS]
         cond = (cornA<self.areaSPhase[elemSquare])
@@ -293,12 +278,12 @@ def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True, overrideTrap
     
     if np.any(arrrT):
         curConAng = self.contactAng.copy()
-        apexDist = np.empty_like(self.hingAngTr.T)
+        apexDist = np.empty_like(self.hingAngTr)
         conAngPT, apexDistPT = do.cornerApex(
-            self, self.elemTriangle, arrrT, self.halfAnglesTr.T, Pc[self.elemTriangle],
-            curConAng, self.cornExistsTr.T, self.initOrMaxPcHistTr.T,
-            self.initOrMinApexDistHistTr.T, self.advPcTr.T,
-            self.recPcTr.T, apexDist, self.initedApexDistTr.T)
+            self, self.elemTriangle, arrrT, self.halfAnglesTr, Pc[self.elemTriangle],
+            curConAng, self.cornExistsTr, self.initOrMaxPcHistTr,
+            self.initOrMinApexDistHistTr, self.advPcTr,
+            self.recPcTr, apexDist, self.initedApexDistTr)
         
         cornA, cornG = do.calcAreaW(
             self, arrrT, self.halfAnglesTr, conAngPT, self.cornExistsTr, apexDistPT)
@@ -315,7 +300,7 @@ def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True, overrideTrap
         self._cornCond[elemTriangle[cond]] = cornG[cond]
         self._cornCond[elemTriangle[~cond]] = self.maxCornerCond[elemTriangle[~cond]]
     
-    if np.any(arrrC):
+    if any(arrrC):
         arrrC = self.elemCircle[arrrC]
         self._cornArea[arrrC] = 0.0
         self._cornCond[arrrC] = 0.0
@@ -330,42 +315,30 @@ def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True, overrideTrap
 
 
 def __updateAreaCond__(self, arrr, overrideTrapping):
-    try:
-        assert not overrideTrapping
+    if not overrideTrapping:
         arrr = (arrr & ~self.trappedNW)
-    except AssertionError:
-        pass
-
-    try:
-        cond2 = arrr & (self.fluid == 0)
-        assert np.any(cond2)
+    
+    cond2 = arrr & (self.fluid == 0)
+    if any(cond2):
         self._areaWP[cond2] = self.areaSPhase[cond2]
         self._areaNWP[cond2] = 0.0
         self._condWP[cond2] = self.gwSPhase[cond2]
         self._condNWP[cond2] = 0.0
-    except AssertionError:
-        pass
-
-    try:
-        cond1 = arrr & (self.fluid==1) & (self.Garray<=self.bndG2)
-        assert np.any(cond1)
+   
+    cond1 = arrr & (self.fluid==1) & (self.Garray<=self.bndG2)
+    if any(cond1):
         self._areaWP[cond1] = np.clip(self._cornArea[cond1], 0.0, self.areaSPhase[cond1])
         self._areaNWP[cond1] = np.clip(self._centerArea[cond1], 0.0, self.areaSPhase[cond1])
         self._condWP[cond1] = np.clip(self._cornCond[cond1], 0.0, self.gwSPhase[cond1])
         self._condNWP[cond1] = np.clip(self._centerCond[cond1], 0.0, self.gnwSPhase[cond1])
-    except AssertionError:
-        pass
-
-    try:
-        cond3 = arrr & (self.fluid==1) & (self.Garray>self.bndG2)
-        assert np.any(cond3)
+    
+    cond3 = arrr & (self.fluid==1) & (self.Garray>self.bndG2)
+    if any(cond3):
         self._areaWP[cond3] = 0.0
         self._areaNWP[cond3] = self.areaSPhase[cond3]
         self._condWP[cond3] = 0.0
         self._condNWP[cond3] = self.gnwSPhase[cond3]
-    except AssertionError:
-        pass
-    
+
 
 def __computePistonPc__(self):
     conda = (self.fluid == 0)
@@ -406,53 +379,48 @@ def __PistonPcHing__(self, arrr):
     arrrS = arrr[self.elemSquare]
     arrrT = arrr[self.elemTriangle]
     
-    try:
-        assert np.any(arrrT)
+    if np.any(arrrT):
         self.PistonPcAdv[self.elemTriangle[arrrT]] = Pc_pistonHing(
             self, self.elemTriangle, arrrT, self.halfAnglesTr.T, self.cornExistsTr,
             self.initOrMaxPcHistTr, self.initOrMinApexDistHistTr, self.advPcTr,
-            self.recPcTr, self.initedApexDistTr)
-    except AssertionError:
-        pass
-    try:
-        assert np.any(arrrS)
+            self.recPcTr, self.initedApexDistTr, False)
+    
+    if np.any(arrrS):
         self.PistonPcAdv[self.elemSquare[arrrS]] = Pc_pistonHing(
-            self, self.elemSquare, arrrS, self.halfAnglesSq, self.cornExistsSq,
+            self, self.elemSquare, arrrS, self.halfAnglesSq.reshape(-1,1), self.cornExistsSq,
             self.initOrMaxPcHistSq, self.initOrMinApexDistHistSq, self.advPcSq,
-            self.recPcSq, self.initedApexDistSq)
-    except AssertionError:
-        pass
+            self.recPcSq, self.initedApexDistSq, True)
     
 
 def Pc_pistonHing(self, arr, arrr, halfAng, m_exists, m_initOrMaxPcHist,
-                    m_initOrMinApexDistHist, advPc, recPc, initedApexDist):
+                    m_initOrMinApexDistHist, advPc, recPc, initedApexDist, is_square):
     
     newPc = 1.1*self.sigma*2.0*self.cosThetaAdvAng[arr]/self.Rarray[arr]
     
     arrr1 = arrr.copy()
-    apexDist = np.zeros(arrr.size)
+    apexDist = np.zeros([arrr.size,1])
     counter = 0
     while True:
         oldPc = newPc.copy()
         sumOne, sumTwo = np.zeros(arrr.size), np.zeros(arrr.size)
         sumThree, sumFour = np.zeros(arrr.size), np.zeros(arrr.size)
         for i in range(m_exists.shape[1]):
-            cond1 = arrr1 & m_exists[:, i]                
+            cond1 = arrr1 & m_exists[:, i]
+                       
             conAng, apexDist = do.cornerApex(
-                self, arr, cond1, halfAng[i], oldPc, self.thetaAdvAng.copy(), m_exists[:, i], m_initOrMaxPcHist[:, i], m_initOrMinApexDistHist[:, i], advPc[:, i],
-                recPc[:, i], apexDist, initedApexDist[:, i], accurat=True, overidetrapping=True)
+                self, arr, cond1, halfAng[i:i+1,:].T, oldPc, self.thetaAdvAng,
+                m_exists[:, i:i+1], m_initOrMaxPcHist[:, i:i+1], 
+                m_initOrMinApexDistHist[:, i:i+1], advPc[:, i:i+1],
+                recPc[:, i:i+1], apexDist, initedApexDist[:, i:i+1], accurat=True, overidetrapping=True, is_square=is_square)
 
-            partus = (apexDist*np.sin(halfAng[i])*oldPc/self.sigma)
-
-            try:
-                assert (abs(partus[cond1]) <= 1.0).all()
-            except AssertionError:
+            partus = apexDist*(np.sin(halfAng[i])*oldPc/self.sigma).reshape(-1, 1)
+            if not (abs(partus[cond1]) <= 1.0).all():
                 partus[cond1 & (abs(partus) > 1.0)] = 0.0          
 
-            sumOne[cond1] += (apexDist*np.cos(conAng))[cond1]
-            sumTwo[cond1] += (np.pi/2-conAng-halfAng[i])[cond1]
-            sumThree[cond1] += (np.arcsin(partus[cond1]))
-            sumFour[cond1] += apexDist[cond1]
+            sumOne[cond1] += (apexDist*np.cos(conAng))[cond1].reshape(-1)
+            sumTwo[cond1] += (np.pi/2.0-conAng-halfAng[i:i+1,:].T)[cond1].reshape(-1)
+            sumThree[cond1] += np.arcsin(partus[cond1]).reshape(-1)
+            sumFour[cond1] += apexDist[cond1].reshape(-1)
 
         a = (2*sumThree-sumTwo)
         b = ((self.cosThetaAdvAng[arr]*self.Rarray[arr]/(
@@ -465,13 +433,12 @@ def Pc_pistonHing(self, arr, arrr, halfAng, m_exists, m_initOrMaxPcHist,
             (-b+np.sqrt(arr1))*cond + (-b)*(~cond))[arrr1])
         err = 2.0*abs((newPc - oldPc)/(abs(oldPc)+abs(newPc)+1.0e-3))[arrr1]
         counter += 1
-        try:
-            assert (err < self.EPSILON).all() or (counter > self.MAX_ITER)
+        if (err < self.EPSILON).all() or (counter > self.MAX_ITER):
             break
-        except AssertionError:
-            arrr1[arrr1] = (err >= self.EPSILON)
+        arrr1[arrr1] = (err >= self.EPSILON)
 
     newPc[np.isnan(newPc)] = 0.0
+
     return newPc[arrr]
 
 
@@ -548,8 +515,7 @@ def __computePc__(self, Pc, arr, update=True, trapping=True):
     entryPc[toSnapoff] = self.snapoffPc[toSnapoff]
 
     ''' update the toFill list '''
-    try:
-        assert update
+    if update:
         ''' update PcI '''   
         diff = (self.PcI[_arr]!=entryPc[_arr])
         changed = diff&(~self.NWElemNotInToFill[_arr])
@@ -560,69 +526,10 @@ def __computePc__(self, Pc, arr, update=True, trapping=True):
         self.update += _arr.size
         self.ElemToFill.update(to_add)
         self.NWElemNotInToFill[to_add] = False
-    except AssertionError:
+    else:
         self.PcI[arr] = entryPc[arr]
         _arr = __func4(self, _arr, trapping)
         self.update += _arr.size
-        self.ElemToFill.update(_arr)
-       
-
-def __computePcOld__(self, Pc, arr, update=True, trapping=True):
-    entryPc = self.PistonPcAdv.copy()
-    maxNeiPistonPrs = np.zeros(self.totElements)
-    _arr = arr[self.hasNWFluid[arr]] # & ~self.trappedNW[arr]]  # elements filled with nw
-    arrP = _arr[(_arr <= self.nPores)]   #pores filled with nw
-    arrT = _arr[(_arr > self.nPores)]      #throats filled with nw
-    _arrT = arrT-self.nPores
-
-    ''' identify pores where porebody filling could occur '''
-    arr1 = np.sum(self.fluid[self.PTConnections[arrP]]==0, axis=1,
-                    where=self.PTValid[arrP])
-    cond1 = (arr1 > 0) & (self.thetaAdvAng[arrP] < np.pi/2.0) #pores for porebody filling
-    __porebodyFilling__(self, arrP[cond1])
-    entryPc[arrP[cond1]] = self.porebodyPc[arrP[cond1]]
-    
-    ''' update the piston-like entry Pc '''      
-    maxNeiPistonPrs[arrP] = np.max(
-        self.PistonPcAdv[self.PTConnections[arrP]], axis=1, initial=0.0,
-        where=(self.PTValid[arrP]&(self.fluid[self.PTConnections[arrP]]==0)))
-    maxNeiPistonPrs[arrT] = np.max(
-        self.PistonPcAdv[self.TPConnections[_arrT]], axis=1, initial=0.0,
-        where=((self.fluid[self.TPConnections[_arrT]]==0)))
-    condb = (maxNeiPistonPrs > 0.0)
-    entryPc[condb] = np.minimum(0.999*maxNeiPistonPrs[
-        condb]+0.001*entryPc[condb], entryPc[condb])
-    
-    ''' Snap-off filling '''
-    __updateSnapoffPc__(self, Pc)
-    conda = (maxNeiPistonPrs > 0.0) & (entryPc>self.snapoffPc)
-    entryPc[~conda&(self.Garray<self.bndG2)] = self.snapoffPc[~conda&(self.Garray<self.bndG2)]
-
-    ''' update the toFill list '''
-    try:
-        assert update
-        ''' update PcI '''
-        diff = (self.PcI[arr] != entryPc[arr])
-        [self.ElemToFill.discard(i) for i in arr[diff]]
-        self.PcI[arr[diff]] = entryPc[arr[diff]]
-
-        ''' add to the toFill list '''
-        arrr = np.zeros(self.totElements, dtype=bool)
-        arrr[_arr[self.hasWFluid[_arr]]] = True
-        _arr = _arr[~self.hasWFluid[_arr]]
-        arrP = _arr[_arr <= self.nPores]
-        arrT = _arr[_arr > self.nPores]
-        _arrT = arrT-self.nPores
-        arrrP = (self.hasWFluid[self.PTConnections[arrP]]&self.PTValid[arrP]).any(axis=1)
-        arrrT = (self.hasWFluid[self.TPConnections[_arrT]]|
-                    (self.TPConnections[_arrT]==-1)).any(axis=1)
-        arrr[arrP] = arrrP
-        arrr[arrT] = arrrT
-        arrr[self.ElemToFill] = False
-        self.ElemToFill.update(self.elementListS[arrr])
-    except AssertionError:
-        self.PcI[arr] = entryPc[arr]
-        _arr = __func4(self, _arr, trapping)
         self.ElemToFill.update(_arr)
     
 
@@ -639,13 +546,12 @@ def __func4(self, arr, trapping=True):
     arrT = arr[arr>self.nPores]
     arrTP = self.TPConnections[arrT-self.nPores]
 
-    try:
-        assert trapping
+    if trapping:
         hasValidNeighP = arrP[np.any(
             (self.hasWFluid[arrPT])&(~self.trappedW[arrPT])&self.PTValid[arrP], axis=1)]
         hasValidNeighT = arrT[np.any(
             (arrTP==-1) | ((self.hasWFluid[arrTP])&(~self.trappedW[arrTP])&(arrTP>0)), axis=1)]
-    except AssertionError:
+    else:
         hasValidNeighP = arrP[np.any((self.hasWFluid[arrPT])&self.PTValid[arrP], axis=1)]
         hasValidNeighT = arrT[np.any((arrTP==-1) | ((self.hasWFluid[arrTP])&(arrTP>0)), axis=1)]
     
@@ -655,8 +561,7 @@ def __func4(self, arr, trapping=True):
 
 
 def __porebodyFilling__(self, ind):
-    try:
-        assert ind.size > 0
+    if ind.size > 0:
         arr = self.PTConnections[ind]
         cond = (self.fluid[arr]==1)&self.PTValid[ind]  
         arr2 = np.sort(np.where(cond, self.randNum[arr], np.nan))[:, :6]
@@ -666,8 +571,7 @@ def __porebodyFilling__(self, ind):
         #Blunt2
         self.porebodyPc[ind] = self.sigma*(
             2*self.cosThetaAdvAng[ind]/self.Rarray[ind] - sumrand)
-    except AssertionError:
-        pass
+    
 
 
 def __writeHeadersI__(self):

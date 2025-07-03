@@ -315,16 +315,16 @@ def __CondTP_Drainage__(self):
         Pc = self.PcD[self.elemTriangle]
         curConAng = self.contactAng.copy()
         do.createFilms(self, self.elemTriangle, arrrT, self.halfAnglesTr, Pc,
-                    self.cornExistsTr, self.initedTr,
-                    self.initOrMaxPcHistTr,
-                    self.initOrMinApexDistHistTr, self.advPcTr,
-                    self.recPcTr, self.initedApexDistTr)
-        apexDist = np.zeros(self.hingAngTr.T.shape)
+            self.cornExistsTr, self.initedTr,
+            self.initOrMaxPcHistTr,
+            self.initOrMinApexDistHistTr, self.advPcTr,
+            self.recPcTr, self.initedApexDistTr)
+        apexDist = np.zeros(self.hingAngTr.shape)
         conAngPT, apexDistPT = do.cornerApex(
-            self, self.elemTriangle, arrrT, self.halfAnglesTr.T, self.capPresMax,
-            curConAng, self.cornExistsTr.T, self.initOrMaxPcHistTr.T,
-            self.initOrMinApexDistHistTr.T, self.advPcTr.T,
-            self.recPcTr.T, apexDist, self.initedApexDistTr.T)
+            self, self.elemTriangle, arrrT, self.halfAnglesTr, self.capPresMax,
+            curConAng, self.cornExistsTr, self.initOrMaxPcHistTr,
+            self.initOrMinApexDistHistTr, self.advPcTr,
+            self.recPcTr, apexDist, self.initedApexDistTr)
         
         cornA, cornG = do.calcAreaW(
             self, arrrT, self.halfAnglesTr, conAngPT, self.cornExistsTr, apexDistPT)
@@ -339,20 +339,21 @@ def __CondTP_Drainage__(self):
     if np.any(arrrS):
         Pc = self.PcD[self.elemSquare]
         curConAng = self.contactAng.copy()
-        do.createFilms(self, self.elemSquare, arrrS, self.halfAnglesSq,
+        halfAnglesSq = self.halfAnglesSq.reshape(1,-1)
+        do.createFilms(self, self.elemSquare, arrrS, halfAnglesSq,
                         Pc, self.cornExistsSq, self.initedSq, self.initOrMaxPcHistSq,
                         self.initOrMinApexDistHistSq, self.advPcSq,
                         self.recPcSq, self.initedApexDistSq)
 
-        apexDist = np.zeros(self.hingAngSq.T.shape)
+        apexDist = np.zeros(self.hingAngSq.shape)
         conAngPS, apexDistPS = do.cornerApex(
-            self, self.elemSquare, arrrS, self.halfAnglesSq[:, np.newaxis], self.capPresMax,
-            curConAng, self.cornExistsSq.T, self.initOrMaxPcHistSq.T,
-            self.initOrMinApexDistHistSq.T, self.advPcSq.T,
-            self.recPcSq.T, apexDist, self.initedApexDistSq.T)
+            self, self.elemSquare, arrrS, halfAnglesSq, self.capPresMax,
+            curConAng, self.cornExistsSq, self.initOrMaxPcHistSq,
+            self.initOrMinApexDistHistSq, self.advPcSq,
+            self.recPcSq, apexDist, self.initedApexDistSq)
 
         cornA, cornG = do.calcAreaW(
-            self, arrrS, self.halfAnglesSq, conAngPS, self.cornExistsSq, apexDistPS)
+            self, arrrS, halfAnglesSq, conAngPS, self.cornExistsSq, apexDistPS)
         
         arrrS = self.elemSquare[arrrS]
         condlist = (cornA < self._cornArea[arrrS])
