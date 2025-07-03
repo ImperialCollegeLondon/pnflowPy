@@ -147,9 +147,6 @@ def drainage(self):
         self.SwTarget = max(self.finalSat-1e-15, round((
             self.satW-self.dSw*0.75)/self.dSw)*self.dSw)
 
-        
-        
-
         if len(self.ElemToFill) == 0:
             self.filling = False
             self.cnt, self.totNumFill = 0, 0
@@ -183,7 +180,6 @@ def drainage(self):
     do.__finitCornerApex__(self, self.capPresMax)
     print('Time spent for the drainage process: ', time() - start)        
     print('==========================================================\n\n')
-<<<<<<< Updated upstream
 
     if self.saveDrainage:
         import dill
@@ -193,8 +189,6 @@ def drainage(self):
             dill.dump(self, f)
 
     print(f'no of pops: {self.pop}, no of updates: {self.update}')
-=======
->>>>>>> Stashed changes
     
 
 def popUpdateOilInj(self):
