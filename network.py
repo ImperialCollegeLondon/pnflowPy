@@ -59,7 +59,7 @@ class Network(InputData):
         node2 = np.loadtxt(self.cwd + '/' + str(self.title) + "_node2.dat")
 
         self.poreList = np.arange(1, self.nPores+1)
-        self.throatList = np.arange(1, self.nThroats+1, dtype='int32')
+        self.throatList = np.arange(1, self.nThroats+1)
         self.tList = self.throatList+self.nPores
         self.Area_ = self.yDim*self.zDim
         self.Lnetwork = self.xDim
@@ -117,8 +117,8 @@ class Network(InputData):
         self.z_array = np.zeros(self.nPores+2)
         self.z_array[[0, -1]] = self.zDim/2
         self.connNum_array = np.zeros(self.nPores+2, dtype='uint32')
-        self.poreInletStat = np.zeros(self.nPores+2, dtype='bool')
-        self.poreOutletStat = np.zeros(self.nPores+2, dtype='bool')
+        self.poreInletStat = np.zeros(self.nPores+2, dtype=np.bool_)
+        self.poreOutletStat = np.zeros(self.nPores+2, dtype=np.bool_)
         [*map(getDataP, Lines3[1:])]
 
     def NetworkData(self):
@@ -150,9 +150,21 @@ class Network(InputData):
         self.isSquare = (self.Garray > self.bndG1) & (self.Garray < self.bndG2)
         self.elemSquare = self.elementLists[self.isSquare[1:-1]]
         self.isPolygon = (self.Garray <= self.bndG2)
-
+        
+        # place-holder arrays
+        self.m_halfAngles = np.zeros([self.totElements,4], dtype=np.float64)
+        self.m_cornExists = np.zeros([self.totElements,4], dtype=np.bool_)
+        self.m_inited = np.zeros([self.totElements, 4], dtype=np.bool_)
+        self.m_initOrMaxPcHist= np.zeros([self.totElements,4], dtype=np.float64)
+        self.m_initOrMinApexDistHist = np.zeros([self.totElements,4], dtype=np.float64)
+        self.m_initedApexDist = np.zeros([self.totElements,4], dtype=np.float64)
+        self.m_advPc = np.zeros([self.totElements,4], dtype=np.float64)
+        self.m_recPc = np.zeros([self.totElements,4], dtype=np.float64)
+        self.m_hingAng = np.zeros([self.totElements, 4], dtype=np.float64)
+        
         self.__identifyConnectedElements__()
         self.__computeHalfAng__(self.elemTriangle)
+        self.m_halfAngles[self.elemSquare,:4] = np.pi/4
         self.halfAnglesSq = np.array([pi/4, pi/4, pi/4, pi/4])
         self.cotBetaSq = 1/np.tan(self.halfAnglesSq)
         
@@ -183,17 +195,19 @@ class Network(InputData):
        
         self.PcD = np.zeros(self.totElements)
         self.PcI = np.zeros(self.totElements)
+        
+        
 
     def __isinsideBox__(self):
-        self.isinsideBox = np.zeros(self.totElements, dtype='bool')
+        self.isinsideBox = np.zeros(self.totElements, dtype=np.bool_)
         self.isinsideBox[self.poreList] = (self.x_array[1:-1] >= self.xstart) & (
             self.x_array[1:-1] <= self.xend)
         self.isinsideBox[self.tList] = (
             self.isinsideBox[self.P1array] | self.isinsideBox[self.P2array])
         
     def __isOnBdr__(self):
-        self.isOnInletBdr = np.zeros(self.totElements, dtype='bool')
-        self.isOnOutletBdr = np.zeros(self.totElements, dtype='bool')
+        self.isOnInletBdr = np.zeros(self.totElements, dtype=np.bool_)
+        self.isOnOutletBdr = np.zeros(self.totElements, dtype=np.bool_)
 
         condP1 = (self.isinsideBox[self.tList]) & (~self.isinsideBox[self.P1array])
         self.isOnInletBdr[self.P1array[condP1]] = (self.x_array[self.P1array[condP1]] < self.xstart)
@@ -204,11 +218,13 @@ class Network(InputData):
         self.isOnOutletBdr[self.P2array[condP2]] = (self.x_array[self.P2array[condP2]] > self.xend)
 
         self.isOnBdr = self.isOnInletBdr | self.isOnOutletBdr
-        self.conTToInletBdr = self.tList[(self.isinsideBox[self.tList]) & (
-            self.isOnInletBdr[self.P1array] | self.isOnInletBdr[self.P2array])]
+        self.is_conTToInletBdr = (self.isinsideBox[self.tList]) & (
+            self.isOnInletBdr[self.P1array] | self.isOnInletBdr[self.P2array])
+        self.conTToInletBdr = self.tList[self.is_conTToInletBdr]
         self._conTToInletBdr = self.conTToInletBdr-self.nPores
-        self.conTToOutletBdr = self.tList[(self.isinsideBox[self.tList]) & (
-            self.isOnOutletBdr[self.P1array] | self.isOnOutletBdr[self.P2array])]
+        self.is_conTToOutletBdr = (self.isinsideBox[self.tList]) & (
+            self.isOnOutletBdr[self.P1array] | self.isOnOutletBdr[self.P2array])
+        self.conTToOutletBdr = self.tList[self.is_conTToOutletBdr]
         self._conTToOutletBdr = self.conTToOutletBdr-self.nPores
         
     
@@ -223,8 +239,8 @@ class Network(InputData):
     
     def __identifyConnectedElements__(self):
         ttt = self.tList[(self.P1array<=0)|(self.P2array<-0)]
-        self.connected = np.zeros(self.totElements, dtype='bool')
-        notdone = np.ones(self.totElements, dtype='bool')
+        self.connected = np.zeros(self.totElements, dtype=np.bool_)
+        notdone = np.ones(self.totElements, dtype=np.bool_)
         notdone[[-1,0]] = False
         self.connected[ttt] = True
         notdone[ttt] = False
@@ -285,7 +301,8 @@ class Network(InputData):
 
         assert (beta1 <= beta2).all()
         assert (beta2 <= beta3).all()
-        self.halfAnglesTr = np.column_stack((beta1, beta2, beta3))
+        self.m_halfAngles[self.elemTriangle,:3] = np.column_stack((beta1, beta2, beta3))
+        self.halfAnglesTr = self.m_halfAngles[self.elemTriangle,:3]
         self.cotBetaTr = 1/np.tan(self.halfAnglesTr)
 
     def __modifyLength__(self):
@@ -383,6 +400,72 @@ class Network(InputData):
         if 'ElemToFill' in state:
             del state['ElemToFill']  # remove it before pickling
         return state
+        
+        
+    @property
+    def cornExistsTr(self):
+        return self.m_cornExists[self.elemTriangle, :3]
+        
+    @property
+    def cornExistsSq(self):
+        return self.m_cornExists[self.elemSquare, :4]  
+        
+    @property
+    def initedTr(self):
+        return self.m_inited[self.elemTriangle, :3]
+        
+    @property
+    def initedSq(self):
+        return self.m_inited[self.elemSquare, :4]
+        
+    @property
+    def initOrMaxPcHistTr(self):
+        return self.m_initOrMaxPcHist[self.elemTriangle, :3]
+        
+    @property
+    def initOrMaxPcHistSq(self):
+        return self.m_initOrMaxPcHist[self.elemSquare, :4]  
+        
+    @property
+    def initOrMinApexDistHistTr(self):
+        return self.m_initOrMinApexDistHist[self.elemTriangle, :3]
+        
+    @property
+    def initOrMinApexDistHistSq(self):
+        return self.m_initOrMinApexDistHist[self.elemSquare, :4]
+        
+    @property
+    def initedApexDistTr(self):
+        return self.m_initedApexDist[self.elemTriangle, :3]
+        
+    @property
+    def initedApexDistSq(self):
+        return self.m_initedApexDist[self.elemSquare, :4]  
+        
+    @property
+    def advPcTr(self):
+        return self.m_advPc[self.elemTriangle, :3]
+        
+    @property
+    def advPcSq(self):
+        return self.m_advPc[self.elemSquare, :4]
+        
+    @property
+    def recPcTr(self):
+        return self.m_recPc[self.elemTriangle, :3]
+        
+    @property
+    def recPcSq(self):
+        return self.m_recPc[self.elemSquare, :4]  
+        
+    @property
+    def hingAngTr(self):
+        return self.m_hingAng[self.elemTriangle, :3]
+        
+    @property
+    def hingAngSq(self):
+        return self.m_hingAng[self.elemSquare, :4]      
+
 
 
 class Element:

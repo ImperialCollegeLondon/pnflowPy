@@ -81,7 +81,7 @@ class Cluster():
                     # double previous size/add 500 new clusters
                     oldSize = self.pc.size
                     addSize = min(oldSize, 200)
-                    self.resizeClusters(addSize, self)
+                    self.resizeClusters(addSize)
                     id = np.setdiff1d(np.where(self.size==0)[0], self.availableID)
                     self.availableID.update(id[id>0])
 

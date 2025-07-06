@@ -28,8 +28,7 @@ def computegL(self, g) -> np.array:
         g, self.nThroats
     )
 
-
-@njit(parallel=True)
+@njit(parallel=True, cache=True)
 def compute_gL_numba(P1array, P2array, tList, LP1, LP2, LT, g, nThroats):
     gL = np.zeros(nThroats)
     for i in prange(nThroats):
@@ -45,7 +44,6 @@ def compute_gL_numba(P1array, P2array, tList, LP1, LP2, LT, g, nThroats):
             elif (gP1 > 0) and (gP2 == 0) and (LP1[i] > 0):
                 gL[i] = 1.0 / (LT[i]/gT + LP1[i]/gP1)
     return gL
-
 
 
 def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False,
@@ -129,67 +127,109 @@ def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False
         return mem
     
 
-@njit
+@njit(parallel=True, cache=True)
 def build_Amatrix_data(
     throatList, P1array, P2array,
     isOnInletBdr, isOnOutletBdr, gL, mList):
+        
+    tSize = throatList.size
+    max_entries = 4 * tSize
 
-    row = np.empty(4*throatList.size, dtype=np.int32)
-    col = np.empty_like(row)
-    data = np.empty(4*throatList.size, dtype=np.float64)
-    count = 0
-
+    row_tmp = np.full(max_entries, -1, dtype=np.int32)
+    col_tmp = np.full_like(row_tmp, -1)
+    data_tmp = np.zeros_like(row_tmp, dtype=np.float64)
+    entry_counts = np.zeros(tSize, dtype=np.int32)
+    
     c = np.sum(mList >= 0)  # number of active pores
-    Cmatrix = np.zeros(c)
+    Cmatrix_cond = np.zeros(tSize, dtype=np.float64)
+    Cmatrix_ind = np.full(tSize, -1, dtype=np.int32)
 
-    for t in throatList:
+    for i in prange(tSize):
+        t = throatList[i]-1
         cond = gL[t]
-
         if cond == 0.0:
             continue
-
+            
         P1_t, P2_t = P1array[t], P2array[t]
         P1, P2 = mList[P1_t], mList[P2_t]
+        offset = i*4
+        local_count = 0
         
         if (P1 >= 0) and (P2 >= 0):
             # internal connection
-            row[count:count+4] = [P1, P2, P1, P2]
-            col[count:count+4] = [P2, P1, P1, P2]
-            data[count:count+4] = [-cond, -cond, cond, cond]
-            count += 4
+            row_tmp[offset] = P1
+            row_tmp[offset + 1] = P2
+            row_tmp[offset + 2] = P1
+            row_tmp[offset + 3] = P2
+            
+            col_tmp[offset] = P2
+            col_tmp[offset + 1] = P1
+            col_tmp[offset + 2] = P1
+            col_tmp[offset + 3] = P2
+            
+            data_tmp[offset] = -cond
+            data_tmp[offset + 1] = -cond
+            data_tmp[offset + 2] = cond
+            data_tmp[offset + 3] = cond
+            
+            local_count = 4
 
         elif (P1 >= 0) and (isOnInletBdr[P2_t]):
             # connection to inlet boundary
-            row[count] = P1
-            col[count] = P1
-            data[count] = cond
-            count += 1
-            Cmatrix[P1] += cond
+            row_tmp[offset] = P1
+            col_tmp[offset] = P1
+            data_tmp[offset] = cond
+            local_count = 1
+            Cmatrix_cond[i] = cond
+            Cmatrix_ind[i] = P1
 
         elif (P2 >= 0) and (isOnInletBdr[P1_t]):
             # connection to inlet boundary
-            row[count] = P2
-            col[count] = P2
-            data[count] = cond
-            count += 1
-            Cmatrix[P2] += cond
+            row_tmp[offset] = P2
+            col_tmp[offset] = P2
+            data_tmp[offset] = cond
+            local_count = 1
+            Cmatrix_cond[i] = cond
+            Cmatrix_ind[i] = P2
 
         elif (P1 >= 0) and (isOnOutletBdr[P2_t]):
             # connection to outlet boundary
-            row[count] = P1
-            col[count] = P1
-            data[count] = cond
-            count += 1
+            row_tmp[offset] = P1
+            col_tmp[offset] = P1
+            data_tmp[offset] = cond
+            local_count = 1
 
         elif (P2 >= 0) and (isOnOutletBdr[P1_t]):
             # connection to outlet boundary
-            row[count] = P2
-            col[count] = P2
-            data[count] = cond
-            count += 1
+            row_tmp[offset] = P2
+            col_tmp[offset] = P2
+            data_tmp[offset] = cond
+            local_count = 1
+            
+        entry_counts[i] = local_count
+        
+    total_entries = np.sum(entry_counts)
+    row = np.empty(total_entries, dtype=np.int32)
+    col = np.empty_like(row)
+    data = np.empty(total_entries, dtype=np.float64)
+    Cmatrix = np.zeros(c)
+    
+    idx = 0
+    for i in range(tSize):
+        offset = i*4
+        n = entry_counts[i]
+        for j in range(n):
+            row[idx] = row_tmp[offset+j]
+            col[idx] = col_tmp[offset+j]
+            data[idx] = data_tmp[offset+j]
+            idx += 1
 
-    return row[:count], col[:count], data[:count], Cmatrix
+        if Cmatrix_cond[i]>0.0:
+            P = Cmatrix_ind[i]
+            Cmatrix[P] += Cmatrix_cond[i]
 
+    return row, col, data, Cmatrix
+    
 
 def __getValue__(self, arrr, gL):
     indP = self.poreList[arrr[self.poreList]]
@@ -197,81 +237,159 @@ def __getValue__(self, arrr, gL):
     mList = -np.ones(self.nPores+2, dtype=np.int32)
     mList[indP] = np.arange(c)
 
-    throatList = self.throatList[arrr[self.tList]]-1
+    throatList = self.throatList[arrr[self.tList]]
 
     row, col, data, Cmatrix = build_Amatrix_data(
         throatList, self.P1array, self.P2array,
         self.isOnInletBdr, self.isOnOutletBdr, gL,
-        mList
-    )
+        mList)
 
     Amatrix = csr_matrix((data, (row, col)), shape=(c, c), dtype=float)
 
     return Amatrix, Cmatrix
 
 
-@njit
 def Saturation(self, AreaWP, AreaSP):
-    satWP = AreaWP/AreaSP
-    num = (satWP[self.isinsideBox]*self.volarray[self.isinsideBox]).sum()
-    return num/self.totVoidVolume
+    return Saturation_numba(self.isinsideBox, self.totElements, self.totVoidVolume, AreaWP, AreaSP, self.volarray)
 
 
+@njit(parallel=True, cache=True)
+def Saturation_numba(isinsideBox, totElements, totVoidVolume, AreaWP, AreaSP, volarray):
+    vol = 0.0
+    for i in prange(totElements):
+        if isinsideBox[i] and AreaSP[i]!=0.0:
+            vol += (AreaWP[i]/AreaSP[i]*volarray[i])
+    return vol/totVoidVolume
+        
+        
 def computeFlowrate(self, gL, fluid, Pc, vector=False):
-    conn = self.connW.copy() if fluid==0 else self.connNW.copy()
-    conTToIn = self.conTToIn.copy()
-    arrr = np.zeros(self.totElements, dtype='bool')
-    active = (gL > 0.0)
-    arrr[self.P1array[active]] = True
-    arrr[self.P2array[active]] = True
-    arrr[self.tList[active]] = True
-    arrr = (arrr & self.connected)
+    arrr, arr = computeFlowrate_numba_1(
+        gL, self.totElements, self.P1array, self.P2array, 
+        self.tList, self.conTToIn, self.connected)
+   
     conn = check_Trapping_Clustering(
-        self, conTToIn[arrr[conTToIn]], arrr.copy(), fluid, Pc, updateConnectivity=True)
+        self, arr, arrr, fluid, Pc, updateConnectivity=True)
+        
     if fluid == 0: self.connW = conn
     else: self.connNW = conn
-    conn = conn & self.isinsideBox
-    Amatrix, Cmatrix = __getValue__(self, conn, gL)
-        
-    pres = np.zeros(self.nPores+2)
+    mList, arrT, c, indP = computeFlowrate_numba_2(
+        conn, self.nPores, self.poreList, self.tList, self.totElements, self.isinsideBox)
+
     if conn.any():
-        pres[conn[self.poreListS]] = matrixSolver(Amatrix, Cmatrix)
-        pres[self.isOnInletBdr[self.poreListS]] = 1.0       
-        qp = compute_qp(self.P1array, self.P2array, gL, pres)
+        row, col, data, Cmatrix = build_Amatrix_data(
+            arrT, self.P1array, self.P2array,
+            self.isOnInletBdr, self.isOnOutletBdr, gL,
+            mList)       
+       
+        Amatrix = csr_matrix((data, (row, col)), shape=(c, c), dtype=np.float64)
+        pres = np.zeros(self.nPores+2)
+        pres[indP] = matrixSolver(Amatrix, Cmatrix)
+        qout, qp, direction = compute_qp_numba(
+            self.P1array, self.P2array, self.tList, gL, self.nThroats, pres, self.poreList, c, conn,
+            self.isOnInletBdr, vector, self.is_conTToInletBdr.copy(), self.is_conTToOutletBdr.copy())
+
     else:
-        qp = np.zeros(self.nThroats)
+        qout, qp = 0.0, np.zeros(self.nThroats)
+        direction = np.ones(self.nThroats, dtype=np.bool_)
     
     if not vector:
-        conTToInletBdr = self._conTToInletBdr[conn[self.conTToInletBdr]]
-        conTToOutletBdr = self._conTToOutletBdr[conn[self.conTToOutletBdr]]
-        qinto = qp[conTToInletBdr-1].sum()
-        qout = qp[conTToOutletBdr-1].sum()
-        if np.isclose(qinto, qout, atol=1e-30):
-            qout = (qinto+qout)/2
         return qout
     else:
-        return (qp, (pres[self.P2array]<=pres[self.P1array]))
-    
-
-@njit
-def compute_qp(P1array, P2array, gL, pres):
-    n = len(gL)
-    delP = np.empty(n)
-    qp = np.empty(n)
-    for i in range(n):
-        delP[i] = abs(pres[P1array[i]] - pres[P2array[i]])
-        qp[i] = gL[i] * delP[i]
-    return qp
+        return qp, direction
         
+    
+@njit(parallel=True, cache=True)
+def computeFlowrate_numba_1(gL, totElements, P1array, P2array, tList, conTToIn, connected):
+        
+    arrr = np.zeros(totElements, dtype='bool')
+    
+    active = (gL>0.0)
+    arrP1 = P1array[active]
+    arrP2 = P2array[active]
+    arrT = tList[active]
+    
+    mask_P1 = connected[arrP1]
+    mask_P2 = connected[arrP2]
+    mask_T = connected[arrT]
+    
+    arrP1_con = arrP1[mask_P1]
+    arrP2_con = arrP2[mask_P2]
+    arrT_con = arrT[mask_T]
+    
+    for i in prange(arrP1_con.size):
+        P1 = arrP1_con[i]
+        arrr[P1] = True
+    for i in prange(arrP2_con.size):
+        P2 = arrP2_con[i]
+        arrr[P2] = True
+    for i in prange(arrT_con.size):
+        T = arrT_con[i]
+        arrr[T] = True
+            
+    mask_TToIn = arrr[conTToIn]
+    arrTToIn = conTToIn[mask_TToIn]
+
+    return arrr, arrTToIn
+    
+    
+@njit(parallel=True, cache=True)
+def computeFlowrate_numba_2(arrr, nPores, poreList, tList, totElements, isinsideBox):
+    mList = -np.ones(nPores+2, dtype=np.int32)
+    for i in prange(totElements):
+        if not arrr[i]:
+            continue
+        if not isinsideBox[i] or i < 1:
+            arrr[i] = False
+            continue
+    
+    indP = np.flatnonzero(arrr[poreList])+1
+    c = indP.size
+    mList[indP] = np.arange(c)
+    arrT = np.flatnonzero(arrr[tList])+1
+            
+    return mList, arrT, c, indP
+            
+            
+@njit(parallel=True, cache=True)
+def compute_qp_numba(P1array, P2array, tList, gL, nThroats, pres, poreList, c, arrr,
+        isOnInletBdr, vector, conTToInletBdr, conTToOutletBdr):
+            
+    qp = np.zeros(nThroats)
+    indP = np.flatnonzero(arrr[poreList])+1
+    for i in prange(c):
+        P = indP[i]
+        if arrr[P] and isOnInletBdr[P]:
+            pres[P] = 1.0
+
+    direction = np.ones(nThroats, dtype=np.bool_)
+    for i in prange(nThroats):
+        P1, P2, t = P1array[i], P2array[i], tList[i]
+        if conTToInletBdr[i] and not arrr[t]:
+            conTToInletBdr[i] = False
+        if conTToOutletBdr[i] and not arrr[t]:
+            conTToOutletBdr[i] = False
+            
+        delP = abs(pres[P1] - pres[P2])
+        qp[i] = gL[i] * delP
+        if vector:
+            direction[i] = pres[P1]<=pres[P2]
+                
+    qinto = np.sum(qp[conTToInletBdr])
+    qout = np.sum(qp[conTToOutletBdr])           
+    if not vector and abs(qinto - qout)<1e-30:
+        qout = (qinto + qout)/2.0
+        
+    return qout, qp, direction
+            
 
 def computePerm(self, Pc):
     gwL = computegL(self, self.gWPhase)
-    self.qW = self.qW = computeFlowrate(self, gwL, 0, Pc)
-    self.krw = self.krw = self.qW/self.qwSPhase
+    self.qW = computeFlowrate(self, gwL, 0, Pc)
+    self.krw = self.qW/self.qwSPhase
     if self.fluid[self.conTToOutletBdr].sum() > 0:
         gnwL = computegL(self, self.gNWPhase)
-        self.qNW = self.qNW = computeFlowrate(self, gnwL, 1, Pc)
-        self.krnw = self.krnw = self.qNW/self.qnwSPhase
+        self.qNW = computeFlowrate(self, gnwL, 1, Pc)
+        self.krnw = self.qNW/self.qnwSPhase
     else:
         self.qNW, self.krnw = 0.0, 0.0
     
@@ -380,6 +498,7 @@ def setContactAngles(self, contactAng) -> np.array:
         
     return thetaRecAng, thetaAdvAng
 
+
 def __computeFd__(self, arrr, arrBeta) -> np.array:
     thet = self.contactAng[arrr, np.newaxis]
     cond = (arrBeta < (np.pi/2-thet))
@@ -394,91 +513,336 @@ def __computeFd__(self, arrr, arrBeta) -> np.array:
     Fd = num/den
     return Fd
 
-
-@njit(parallel=True)
+        
+@njit(parallel=True, cache=True)
 def create_films_numba(
-    arr, arrr, halfAng, Pc, m_exists, m_inited, m_initOrMaxPcHist, m_initOrMinApexDistHist, advPc, recPc, m_initedApexDist, is_oil_inj, sigma, thetaAdvAng, thetaRecAng):
+    arrr, halfAng, Pc, m_exists, m_inited, m_initOrMaxPcHist,
+    m_initOrMinApexDistHist, advPc, recPc, m_initedApexDist, is_oil_inj,
+    sigma, thetaAdvAng, thetaRecAng, nCorners):
 
+    arr = np.flatnonzero(arrr)
     n = arr.size
-    nCorners = m_exists.shape[1]
-    is_square = (nCorners == 4)
+    thetaAng = thetaRecAng if is_oil_inj else thetaAdvAng
+    half_pi = np.pi/2.0
+    
     for i in prange(n):
         idx = arr[i]
-
-        if not arrr[i]:
-            continue
-
-        conAng = thetaRecAng[idx] if is_oil_inj else thetaAdvAng[idx]
+        conAng = thetaAng[idx]
         Pc_val = Pc[i]
         sigma_over_Pc = sigma / Pc_val
-        for j in range(nCorners):
-            if m_exists[i, j] and m_inited[i, j]:
+        for j in prange(nCorners):
+            if m_exists[idx, j] and m_inited[idx, j]:
                 continue
 
-            halfAng_ij = halfAng[0, j] if is_square else halfAng[i, j]
-
-            if conAng >= (np.pi / 2.0 - halfAng_ij):
+            halfAng_ij = halfAng[idx, j]
+            if conAng >= (half_pi - halfAng_ij):
                 continue
 
-            m_exists[i, j] = True
-            
+            m_exists[idx, j] = True
             cosTerm = np.cos(conAng + halfAng_ij)
             sinTerm = np.sin(halfAng_ij)
             initedApexDist = max(sigma_over_Pc * cosTerm / sinTerm, 0.0)
-            m_initedApexDist[i, j] = initedApexDist
-
+            m_initedApexDist[idx, j] = initedApexDist
             if initedApexDist != 0.0:
-                advPc[i, j] = sigma * np.cos(min(np.pi, thetaAdvAng[idx]) + halfAng_ij) / (initedApexDist * sinTerm)
-                recPc[i, j] = sigma * np.cos(min(np.pi, thetaRecAng[idx]) + halfAng_ij) / (initedApexDist * sinTerm)
+                advPc[idx, j] = sigma * np.cos(min(np.pi, thetaAdvAng[idx]) + halfAng_ij) / (initedApexDist * sinTerm)
+                recPc[idx, j] = sigma * np.cos(min(np.pi, thetaRecAng[idx]) + halfAng_ij) / (initedApexDist * sinTerm)
             else:
-                advPc[i, j] = 0.0
-                recPc[i, j] = 0.0
+                advPc[idx, j] = 0.0
+                recPc[idx, j] = 0.0
 
-            m_inited[i, j] = True
+            m_inited[idx, j] = True
+            if Pc_val > m_initOrMaxPcHist[idx, j]:
+                m_initOrMinApexDistHist[idx, j] = initedApexDist
+                m_initOrMaxPcHist[idx, j] = Pc_val
+                
 
-            if Pc_val > m_initOrMaxPcHist[i, j]:
-                m_initOrMinApexDistHist[i, j] = initedApexDist
-                m_initOrMaxPcHist[i, j] = Pc_val
-
-
-
-def createFilms(self, arr, arrr, halfAng, Pc, m_exists,
-                m_inited, m_initOrMaxPcHist, m_initOrMinApexDistHist, advPc,
-                recPc, m_initedApexDist):
+def createFilms(self, arrr, Pc, nCorners):
     create_films_numba(
-        arr, arrr, halfAng, Pc,
-        m_exists, m_inited, m_initOrMaxPcHist, m_initOrMinApexDistHist,
-        advPc, recPc, m_initedApexDist, self.is_oil_inj,
-        self.sigma, self.thetaAdvAng, self.thetaRecAng
+        arrr, self.m_halfAngles, Pc, self.m_cornExists, self.m_inited, 
+        self.m_initOrMaxPcHist, self.m_initOrMinApexDistHist,
+        self.m_advPc, self.m_recPc, self.m_initedApexDist, self.is_oil_inj,
+        self.sigma, self.thetaAdvAng, self.thetaRecAng, nCorners
     )
 
+ 
+@njit
+def calcAreaW(self, arrr, conAng, apexDist, nCorners):
+    return calcAreaW_numba(arrr, self.m_halfAngles, conAng, self.m_cornExists,
+                apexDist, self.muw, nCorners)
+    
+  
+@njit(parallel=True, cache=True)
+def calcAreaW_numba(arrr, halfAng, conAng, m_exists, apexDist, muw, nCorners):
+    half_pi = np.pi/2.0
+    arr = np.flatnonzero(arrr)
+    n = arr.size
+    area_tmp = np.zeros((n, nCorners), dtype=np.float64)
+    conductance_tmp = np.zeros_like(area_tmp)
+    
+    for i in prange(n):
+        idx = arr[i]
+        for j in prange(nCorners):
+            if not m_exists[idx,j]:
+                continue
+                
+            conAng_ij = conAng[i, j]
+            halfAng_ij = halfAng[idx, j]
+            sin_halfAng_ij = np.sin(halfAng_ij)
+            cos_halfAng_ij = np.cos(halfAng_ij)
+        
+            term0 = conAng_ij + halfAng_ij
+            term1 = term0 - half_pi
+            abs_term1 = abs(term1)          
+            cos_term0 = np.cos(term0)
+            term2 = sin_halfAng_ij*cos_halfAng_ij
+            
+            if abs_term1 < 0.01:
+                dimlessCornerA_ij = term2
+            else:
+                dimlessCornerA_ij = (
+                    (sin_halfAng_ij/cos_term0)**2.0 *
+                    (np.cos(conAng_ij)*cos_term0/sin_halfAng_ij + term1))
+        
+            cornerGstar_ij = term2/(4.0 * (1 + sin_halfAng_ij)**2.0)
+            if abs_term1 > 0.01:
+                cornerG_ij = dimlessCornerA_ij/(4.0 * 
+                    (1 - (sin_halfAng_ij/cos_term0)*term1)**2.0)
+            else:
+                cornerG_ij = cornerGstar_ij
+                
+            if cornerG_ij != 0.0:
+                apexDist_ij = apexDist[i, j]
+                cFactor_ij = 0.364 + 0.28*cornerGstar_ij/cornerG_ij
+                conductance_tmp[i, j] = cFactor_ij * (apexDist_ij**4.0) *\
+                    (dimlessCornerA_ij**2.0) * cornerG_ij/muw
+                area_tmp[i, j] = (apexDist_ij**2.0)*dimlessCornerA_ij
+            else:
+                conductance_tmp[i, j] = 0.0
+    
+    cornerArea = np.sum(area_tmp, axis=1)
+    cornerCond = np.sum(conductance_tmp, axis=1)
+    
+    return cornerArea, cornerCond
+    
+
+def __finitCornerApex__(self, Pc):
+    trapped = (self.trappedW | self.trappedNW).reshape(-1,1)
+    arrr = self.connected & (self.isSquare | self.isTriangle)
+    arrrS = arrr & self.isSquare
+    arrrT = arrr & self.isTriangle
+    arr = np.flatnonzero(arrr)
+    Pc = np.full(self.totElements, Pc)
+    
+    m_cornExists = self.m_cornExists.copy()
+    m_cornExists[arr] = (self.m_inited[arr] | (~trapped[arr])) & m_cornExists[arr]
+    contactAng = self.thetaRecAng if self.is_oil_inj else self.thetaAdvAng
+    apexDist = np.zeros_like(self.m_initedApexDist)
+    
+    if np.any(arrrT):
+        arrT = np.flatnonzero(arrrT)
+        _, apexDist[arrT,:3] = cornerApex(
+            self, arrrT, Pc, contactAng, m_cornExists, 3, overidetrapping=True)
+        
+        finitCornerApex_numba(arrrT, m_cornExists, self.m_halfAngles, Pc, self.m_inited, 
+            self.m_initOrMaxPcHist, self.m_initOrMinApexDistHist, self.m_advPc, self.m_recPc, 
+            apexDist, self.m_initedApexDist, self.thetaRecAng, self.thetaAdvAng, 
+            self.sigma, 3)
+    
+    if np.any(arrrS):
+        arrS = np.flatnonzero(arrrS)
+        _, apexDist[arrS] = cornerApex(
+            self, arrrS, Pc, contactAng, m_cornExists, 4, overidetrapping=True)
+        
+        finitCornerApex_numba(arrrS, m_cornExists, self.m_halfAngles, Pc, self.m_inited, 
+            self.m_initOrMaxPcHist, self.m_initOrMinApexDistHist, self.m_advPc, self.m_recPc, 
+            apexDist, self.m_initedApexDist, self.thetaRecAng, self.thetaAdvAng, 
+            self.sigma, 4)
+
+        
+@njit(parallel=True, cache=True)
+def finitCornerApex_numba(arrr, m_cornExists, halfAng, Pc, m_inited, m_initOrMaxPcHist, 
+    m_initOrMinApexDistHist, advPc, recPc, apexDist, m_initedApexDist,
+    thetaRecAng, thetaAdvAng, sigma, nCorners):
+    
+    arr = np.flatnonzero(arrr)
+    n = arr.size
+    for i in prange(n):
+        idx = arr[i]
+        Pc_i = Pc[idx]
+        for j in prange(nCorners):
+            if not m_cornExists[idx,j]:
+                continue
+            halfAng_ij = halfAng[idx,j]
+            sin_halfAng_ij = np.sin(halfAng_ij)
+            apexDist_ij = apexDist[idx,j]
+            recPc[idx,j] = sigma*np.cos((min(np.pi, thetaRecAng[idx])+halfAng_ij))/(
+                apexDist_ij*sin_halfAng_ij)
+            advPc[idx,j] = sigma*np.cos((min(np.pi, thetaAdvAng[idx])+halfAng_ij))/(
+                apexDist_ij*sin_halfAng_ij)
+            if Pc_i > m_initOrMaxPcHist[idx,j]:
+                m_initOrMinApexDistHist[idx,j] = apexDist_ij
+                m_initOrMaxPcHist[idx,j] = Pc_i
+            m_inited[idx,j] = False
+            m_initedApexDist[idx,j] = apexDist_ij
+            
+            
+@njit(parallel=True, cache=True)
+def finitCornerApex_numbaOld(arr, cond, halfAng, Pc, m_inited, m_initOrMaxPcHist, 
+    m_initOrMinApexDistHist, advPc, recPc, apexDist, m_initedApexDist, conAng,
+    thetaRecAng, thetaAdvAng, sigma):
+    n, m = conAng.shape
+    for i in prange(n):
+        idx = arr[i]
+        Pc_i = Pc[0] if Pc.size==1 else Pc[i]
+        for j in prange(m):
+            if not cond[i,j]:
+                continue
+            halfAng_ij = halfAng[i,j]
+            sin_halfAng_ij = np.sin(halfAng_ij)
+            apexDist_ij = apexDist[i,j]
+            recPc[i,j] = sigma*np.cos((min(np.pi, thetaRecAng[idx])+halfAng_ij))/(
+                apexDist_ij*sin_halfAng_ij)
+            advPc[i,j] = sigma*np.cos((min(np.pi, thetaAdvAng[idx])+halfAng_ij))/(
+                apexDist_ij*sin_halfAng_ij)
+            if Pc_i > m_initOrMaxPcHist[i,j]:
+                m_initOrMinApexDistHist[i,j] = apexDist_ij
+                m_initOrMaxPcHist[i,j] = Pc_i
+            m_inited[i,j] = False
+            m_initedApexDist[i,j] = apexDist_ij
+    
 
 @njit
-def corner_apex_numba(
-    arr, arrr, halfAng, Pc, _conAng, m_exists,
-    m_initOrMaxPcHist, m_initOrMinApexDistHist, advPc,
-    recPc, apexDist, initedApexDist, trappedW, trappedNW, clusterW_pc, clusterNW_pc, 
-    clusterW_ID, clusterNW_ID, sigma, thetaAdvAng, thetaRecAng, 
-    delta, overidetrapping, MOLECULAR_LENGTH, is_square):
+def cornerApex(self, arrr, Pc, contactAng, m_cornExists, nCorners, accurat=False, overidetrapping=False):
+    
+    delta = 0.0 if accurat else self._delta
+    return corner_apex_numba(
+        arrr, self.m_halfAngles, Pc, contactAng, m_cornExists,
+        self.m_initOrMaxPcHist, self.m_initOrMinApexDistHist, self.m_advPc,
+        self.m_recPc, self.m_initedApexDist, self.trappedW, self.trappedNW, 
+        self.clusterW.pc, self.clusterNW.pc, self.clusterW_ID, self.clusterNW_ID, 
+        self.sigma, self.thetaAdvAng, self.thetaRecAng, 
+        delta,  overidetrapping, self.MOLECULAR_LENGTH, nCorners)
 
-    n = arr.size
-    nCorners = m_exists.shape[1]
-    if is_square is None: is_square = (nCorners == 4)
-    conAng = np.empty(m_exists.shape, dtype=np.float64)
 
-    for i in prange(n):
+@njit(fastmath=True, cache=True)
+def corner_apex_1D_numba(
+    arrr, halfAng, Pc, _conAng, m_cornExists, m_initOrMaxPcHist,
+    m_initOrMinApexDistHist, advPc, recPc, apexDist, initedApexDist, 
+    trappedW, trappedNW, clusterW_pc, clusterNW_pc, clusterW_ID, 
+    clusterNW_ID, sigma, thetaAdvAng, thetaRecAng, 
+    delta, overidetrapping, MOLECULAR_LENGTH):
         
+    arr = np.flatnonzero(arrr)
+    n = arr.size
+    conAng = np.zeros(arrr.size, dtype=np.float64)
+    for i in prange(n):
         idx = arr[i]
-        if not arrr[i]:
+        if not arrr[idx]:
             continue
 
-        Pc_val = Pc[0] if Pc.size==1 else Pc[i]
-            
-        sigma_over_Pc = sigma / Pc_val
-        halfAng_i = halfAng[0] if is_square else halfAng[i]
-
+        Pc_i = Pc[idx]
+        sigma_over_Pc = sigma / Pc_i
+        halfAng_i = halfAng[idx]
+        sin_h_i = np.sin(halfAng_i)
+        initedApexDist_i = initedApexDist[idx]
+        conAng_i = _conAng[idx]
+        
         if not overidetrapping:
-            apexDist[i] = initedApexDist[i]
+            apexDist_i = initedApexDist_i
+            trapped = False
+            if trappedW[idx]:
+                cidx = clusterW_ID[idx]
+                trappedPc = clusterW_pc[cidx]
+                trapped = True
+            elif trappedNW[idx]:
+                cidx = clusterNW_ID[idx]
+                trappedPc = clusterNW_pc[cidx]
+                trapped = True
+
+            if trapped:
+                part = trappedPc * initedApexDist_i * sin_h_i / sigma
+                part = min(0.999999, max(-0.999999, part))
+                conAng_i = max(min(np.arccos(part) - halfAng_i, np.pi), 0.0)
+            
+        # cond0
+        if not m_cornExists[idx]:
+            if overidetrapping:
+                apexDist_i = MOLECULAR_LENGTH
+
+        # cond1
+        elif (advPc[idx] - delta <= Pc_i) and (Pc_i <= recPc[idx] + delta):
+            part = max(
+                min(initedApexDist_i * sin_h_i / sigma_over_Pc, 0.999999), -0.999999)
+            conAng_i = max(min(np.arccos(part) - halfAng_i, np.pi), 0.0)
+            apexDist_i = initedApexDist_i
+
+        # cond2
+        elif Pc_i < advPc[idx]:
+            conAng_i = thetaAdvAng[idx]
+            apexDist_i = sigma_over_Pc * np.cos(conAng_i+halfAng_i)/sin_h_i
+
+            if apexDist_i < initedApexDist_i:
+                part = max(
+                    min(initedApexDist_i * sin_h_i / sigma_over_Pc, 0.999999), -0.999999)
+                conAng_i = max(min(np.arccos(part) - halfAng_i, np.pi), 0.0)
+                apexDist_i = initedApexDist_i
+        
+        # cond3
+        elif Pc_i > m_initOrMaxPcHist[idx]:
+            conAng_i = min(np.pi, thetaRecAng[idx])
+            apexDist_i = sigma_over_Pc*np.cos(conAng_i+halfAng_i)/sin_h_i
+
+        # cond4
+        elif Pc_i > recPc[idx]:
+            conAng_i = thetaRecAng[idx]
+            apexDist_i = sigma_over_Pc*np.cos(conAng_i+halfAng_i)/sin_h_i
+            m_initOrMinApexDistHist_i = m_initOrMinApexDistHist[idx]
+
+            if apexDist_i > initedApexDist_i:
+                part = max(
+                    min(initedApexDist_i * sin_h_i / sigma_over_Pc, 0.999999), -0.999999)
+                conAng_i = max(min(np.arccos(part) - halfAng_i, np.pi), 0.0)
+                apexDist_i = initedApexDist_i
+
+            elif apexDist_i < m_initOrMinApexDistHist_i:
+                part = max(
+                    min(m_initOrMinApexDistHist_i * sin_h_i / sigma_over_Pc, 0.999999), -0.999999)
+                conAng_i = max(min(np.arccos(part) - halfAng_i, np.pi), 0.0)
+                apexDist_i = m_initOrMinApexDistHist_i
+
+        # cond5
+        else:
+            apexDist_i = sigma_over_Pc*np.cos(conAng_i+halfAng_i)/sin_h_i
+
+        conAng[idx] = conAng_i
+        apexDist[idx] = apexDist_i
+
+    return conAng, apexDist
+
+
+@njit(fastmath=True, cache=True)
+def corner_apex_numba(
+    arrr, halfAng, Pc, _conAng, m_cornExists, m_initOrMaxPcHist,
+    m_initOrMinApexDistHist, advPc, recPc, initedApexDist, 
+    trappedW, trappedNW, clusterW_pc, clusterNW_pc, clusterW_ID, 
+    clusterNW_ID, sigma, thetaAdvAng, thetaRecAng, 
+    delta, overidetrapping, MOLECULAR_LENGTH, nCorners):
+
+    arr = np.flatnonzero(arrr)
+    n = arr.size
+    conAng = np.zeros((n, nCorners), dtype=np.float64)
+    apexDist = np.zeros((n, nCorners), dtype=np.float64)
+
+    for i in prange(n):
+        idx = arr[i]
+        if not arrr[idx]:
+            continue
+
+        Pc_i = Pc[idx]
+        sigma_over_Pc = sigma / Pc_i
+        halfAng_i = halfAng[idx]
+        if not overidetrapping:
+            apexDist[i] = initedApexDist[idx,:nCorners]
             trapped = False
             if trappedW[idx]:
                 cidx = clusterW_ID[idx]
@@ -491,31 +855,30 @@ def corner_apex_numba(
 
             if trapped:
                 for j in range(nCorners):
-                    apexDist[i, j] = initedApexDist[i, j]
-                    part = trappedPc * initedApexDist[i, j] * np.sin(halfAng_i[j]) / sigma
+                    apexDist[i, j] = initedApexDist[idx, j]
+                    part = trappedPc * initedApexDist[idx, j] * np.sin(halfAng_i[j]) / sigma
                     part = min(0.999999, max(-0.999999, part))
-                    conAng[i, j] = max(min(np.arccos(part) - halfAng_i[j], np.pi), 0.0)
+                    conAng_ij = max(min(np.arccos(part) - halfAng_i[j], np.pi), 0.0)
 
         for j in range(nCorners):
             halfAng_ij = halfAng_i[j]
             sinHalfAng_ij = np.sin(halfAng_ij)
-            initedApexDist_ij = initedApexDist[i, j]
-            conAng_ij = _conAng[idx]
+            initedApexDist_ij = initedApexDist[idx, j]
 
             # cond0
-            if not m_exists[i, j]:
+            if not m_cornExists[idx, j]:
                 if overidetrapping:
                     apexDist_ij = MOLECULAR_LENGTH
 
             # cond1
-            elif (advPc[i, j] - delta <= Pc_val) and (Pc_val <= recPc[i, j] + delta):
+            elif (advPc[idx, j] - delta <= Pc_i) and (Pc_i <= recPc[idx, j] + delta):
                 part = max(
                     min(initedApexDist_ij * sinHalfAng_ij / sigma_over_Pc, 0.999999), -0.999999)
                 conAng_ij = max(min(np.arccos(part) - halfAng_ij, np.pi), 0.0)
                 apexDist_ij = initedApexDist_ij
 
             # cond2
-            elif Pc_val < advPc[i, j]:
+            elif Pc_i < advPc[idx, j]:
                 conAng_ij = thetaAdvAng[idx]
                 apexDist_ij = sigma_over_Pc * np.cos(conAng_ij+halfAng_ij)/sinHalfAng_ij
 
@@ -526,15 +889,15 @@ def corner_apex_numba(
                     apexDist_ij = initedApexDist_ij
             
             # cond3
-            elif Pc_val > m_initOrMaxPcHist[i, j]:
+            elif Pc_i > m_initOrMaxPcHist[idx, j]:
                 conAng_ij = min(np.pi, thetaRecAng[idx])
                 apexDist_ij = sigma_over_Pc*np.cos(conAng_ij+halfAng_ij)/sinHalfAng_ij
 
             # cond4
-            elif Pc_val > recPc[i, j]:
+            elif Pc_i > recPc[idx, j]:
                 conAng_ij = thetaRecAng[idx]
                 apexDist_ij = sigma_over_Pc*np.cos(conAng_ij+halfAng_ij)/sinHalfAng_ij
-                m_initOrMinApexDistHist_ij = m_initOrMinApexDistHist[i, j]
+                m_initOrMinApexDistHist_ij = m_initOrMinApexDistHist[idx, j]
 
                 if apexDist_ij > initedApexDist_ij:
                     part = max(
@@ -556,43 +919,50 @@ def corner_apex_numba(
             apexDist[i, j] = apexDist_ij
 
     return conAng, apexDist
+        
     
-
-def cornerApex(self, arr, arrr, halfAng, Pc, conAng, m_exists,
-            m_initOrMaxPcHist, m_initOrMinApexDistHist, advPc,
-            recPc, apexDist, initedApexDist, accurat=False,
-            overidetrapping=False, is_square=None):
-    
-    delta = 0.0 if accurat else self._delta
-    Pc = np.atleast_1d(Pc)
-    #try:
-    return corner_apex_numba(
-        arr, arrr, halfAng, Pc, conAng, m_exists,
-        m_initOrMaxPcHist, m_initOrMinApexDistHist, advPc,
-        recPc, apexDist, initedApexDist, self.trappedW, self.trappedNW, 
-        self.clusterW.pc, self.clusterNW.pc, self.clusterW_ID, self.clusterNW_ID, 
-        self.sigma, self.thetaAdvAng, self.thetaRecAng, 
-        delta,  overidetrapping, self.MOLECULAR_LENGTH, is_square=is_square)                                                
-
-
-
-
-def initCornerApex(self, arr, arrr, halfAng, m_exists, m_inited,
+def initCornerApex(self, arr, arrr, halfAng, m_cornExists, m_inited,
                     recPc, advPc, m_initedApexDist, trapped):
 
-    cond =  (m_exists & (arrr&~trapped[arr])[:, np.newaxis])
-    if cond.sum()>0:
-        m_inited[cond] = True
-        Pc =np.zeros_like(m_initedApexDist)
-        Pc[cond] = self.sigma*np.cos(np.minimum(
-            np.pi, ((self.thetaRecAng[arr, np.newaxis]+halfAng)*cond)[cond]))/(
-                m_initedApexDist*np.sin(halfAng))[cond]
+    cond =  (m_cornExists & (arrr&~trapped[arr]).reshape(-1,1))
+    initCornerApex_numba(arr, cond, halfAng, m_inited, recPc, advPc, m_initedApexDist,
+                        self.thetaRecAng, self.thetaAdvAng, self.sigma)
+                                        
 
-        recPc[cond & (recPc < Pc)] = Pc[cond & (recPc < Pc)]
-        advPc[cond] = self.sigma*np.cos(np.minimum(
-            np.pi, ((self.thetaAdvAng[arr, np.newaxis]+halfAng)*cond)[cond]))/(
-                (m_initedApexDist*np.sin(halfAng))[cond])
-
+@njit
+def __initCornerApex__(self):
+    trapped = (self.trappedW | self.trappedNW)
+    arrr = self.connected
+    arrrS = arrr[self.elemSquare]
+    arrrT = arrr[self.elemTriangle]
+    
+    initCornerApex(
+        self, self.elemTriangle, arrrT, self.halfAnglesTr, self.cornExistsTr, self.initedTr,
+        self.recPcTr, self.advPcTr, self.initedApexDistTr, trapped)
+    initCornerApex(
+        self, self.elemSquare, arrrS, self.halfAnglesSq.reshape(-1,1), self.cornExistsSq, self.initedSq,
+        self.recPcSq, self.advPcSq, self.initedApexDistSq, trapped)
+        
+        
+@njit(parallel=True, cache=True)
+def initCornerApex_numba(arr, cond, halfAng, m_inited, recPc, advPc, 
+                        m_initedApexDist, thetaRecAng, thetaAdvAng, sigma):
+    n, m = cond.shape
+    for i in prange(n):
+        idx = arr[i]
+        for j in prange(m):
+            if not cond[i,j]:
+                continue
+            
+            halfAng_ij = halfAng[i,j]
+            sin_halfAng_ij = np.sin(halfAng_ij)            
+            m_inited[i,j] = True
+            pc_ij = sigma*np.cos(min(np.pi, thetaRecAng[idx]+halfAng_ij))/(
+                m_initedApexDist[i,j]*sin_halfAng_ij)
+            recPc[i,j] = max(recPc[i,j], pc_ij)
+            advPc[i,j] = sigma*np.cos(min(np.pi, thetaAdvAng[idx]+halfAng_ij))/(
+                m_initedApexDist[i,j]*sin_halfAng_ij)
+            
 
 def writeResult(self, result_str, Pc):
     print('Sw: %10.6g  \tqW: %8.6e  \tkrw: %12.6g  \tqNW: %8.6e  \tkrnw:\

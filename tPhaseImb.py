@@ -42,7 +42,6 @@ def initialize(self):
     __computePc__(self, self.maxPc, self.elementLists.copy(), False, True)
 
     self.pop, self.update = 0, 0
-
     self._cornArea = self._areaWP.copy()
     self._centerArea = self._areaNWP.copy()
     self._cornCond = self._condWP.copy()
@@ -252,64 +251,83 @@ def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True, overrideTrap
 
     if arrr is None:
         arrr = np.ones(self.totElements, dtype=bool)
-    arrrS = arrr[self.isSquare]
-    arrrT = arrr[self.isTriangle]
-    arrrC = arrr[self.isCircle]
+    # arrrS = arrr[self.isSquare]
+    # arrrT = arrr[self.isTriangle]
+    # arrrC = arrr[self.isCircle]
+    
+    arrrS = arrr & self.isSquare
+    arrrT = arrr & self.isTriangle
+    arrrC = arrr & self.isCircle
 
     if Pc is None:
         Pc = np.full(self.totElements, self.capPresMin)
     
     if np.any(arrrS):
-        curConAng = self.contactAng.copy()
-        halfAnglesSq = self.halfAnglesSq.reshape(1,-1)
-        apexDist = np.empty_like(self.hingAngSq)
-        conAngPS, apexDistPS = do.cornerApex(
-            self, self.elemSquare, arrrS, halfAnglesSq, Pc[self.elemSquare],
-            curConAng, self.cornExistsSq, self.initOrMaxPcHistSq,
-            self.initOrMinApexDistHistSq, self.advPcSq,
-            self.recPcSq, apexDist, self.initedApexDistSq)
+        # curConAng = self.contactAng.copy()
+        # halfAnglesSq = self.halfAnglesSq.reshape(1,-1)
+        # apexDist = np.empty_like(self.hingAngSq)
+        # conAngPS, apexDistPS = do.cornerApex(
+            # self, self.elemSquare, arrrS, halfAnglesSq, Pc[self.elemSquare],
+            # curConAng, self.cornExistsSq, self.initOrMaxPcHistSq,
+            # self.initOrMinApexDistHistSq, self.advPcSq,
+            # self.recPcSq, apexDist, self.initedApexDistSq)
+            
+        conAngPS, apexDistPS = do.cornerApex(self, arrrS, Pc, 
+            self.contactAng.copy(), self.m_cornExists, 4)
+        cornA, cornG = do.calcAreaW(self, arrrS, conAngPS, apexDistPS, 4)
         
-        cornA, cornG = do.calcAreaW(
-            self, arrrS, halfAnglesSq, conAngPS, self.cornExistsSq, apexDistPS)
+        arrS = np.flatnonzero(arrrS)
+        condlist = (cornA < self.areaSPhase[arrS])
+        _arrS1, _arrS2 = arrS[condlist], arrS[~condlist]
+        _cornA = cornA[condlist]
+        self.maxCornerArea[_arrS1] = np.maximum(self.maxCornerArea[_arrS1], _cornA)
+        self._cornArea[_arrS1] = _cornA
+        self._cornArea[_arrS2] = self.maxCornerArea[_arrS2]
         
-        elemSquare = self.elemSquare[arrrS]
-        cond = (cornA<self.areaSPhase[elemSquare])
-        self.maxCornerArea[elemSquare[cond]] = np.maximum(
-            self.maxCornerArea[elemSquare[cond]], cornA[cond])
-        self._cornArea[elemSquare[cond]] = cornA[cond]
-        self._cornArea[elemSquare[~cond]] = self.maxCornerArea[elemSquare[~cond]]
+        _cornG = cornG[condlist]
+        self.maxCornerCond[_arrS1] = np.maximum(self.maxCornerCond[_arrS1], _cornG)
+        self._cornCond[_arrS1] = _cornG
+        self._cornCond[_arrS2] = self.maxCornerCond[_arrS2]
+        
+        
+        
+        
+        
+        # cornA, cornG = do.calcAreaW(
+            # self, arrrS, halfAnglesSq, conAngPS, self.cornExistsSq, apexDistPS)
+        
+        # elemSquare = self.elemSquare[arrrS]
+        # cond = (cornA<self.areaSPhase[elemSquare])
+        # self.maxCornerArea[elemSquare[cond]] = np.maximum(
+            # self.maxCornerArea[elemSquare[cond]], cornA[cond])
+        # self._cornArea[elemSquare[cond]] = cornA[cond]
+        # self._cornArea[elemSquare[~cond]] = self.maxCornerArea[elemSquare[~cond]]
 
-        self.maxCornerCond[elemSquare[cond]] = np.maximum(
-            self.maxCornerCond[elemSquare[cond]], cornG[cond])
-        self._cornCond[elemSquare[cond]] = cornG[cond]
-        self._cornCond[elemSquare[~cond]] = self.maxCornerCond[elemSquare[~cond]]
+        # self.maxCornerCond[elemSquare[cond]] = np.maximum(
+            # self.maxCornerCond[elemSquare[cond]], cornG[cond])
+        # self._cornCond[elemSquare[cond]] = cornG[cond]
+        # self._cornCond[elemSquare[~cond]] = self.maxCornerCond[elemSquare[~cond]]
     
-    if np.any(arrrT):
-        curConAng = self.contactAng.copy()
-        apexDist = np.empty_like(self.hingAngTr)
-        conAngPT, apexDistPT = do.cornerApex(
-            self, self.elemTriangle, arrrT, self.halfAnglesTr, Pc[self.elemTriangle],
-            curConAng, self.cornExistsTr, self.initOrMaxPcHistTr,
-            self.initOrMinApexDistHistTr, self.advPcTr,
-            self.recPcTr, apexDist, self.initedApexDistTr)
+    if np.any(arrrT):        
+        conAngPT, apexDistPT = do.cornerApex(self, arrrT, Pc, 
+            self.contactAng.copy(), self.m_cornExists, 3)
+        cornA, cornG = do.calcAreaW(self, arrrT, conAngPT, apexDistPT, 4)
         
-        cornA, cornG = do.calcAreaW(
-            self, arrrT, self.halfAnglesTr, conAngPT, self.cornExistsTr, apexDistPT)
-   
-        elemTriangle = self.elemTriangle[arrrT]
-        cond = (cornA<self.areaSPhase[elemTriangle])
-        self.maxCornerArea[elemTriangle[cond]] = np.maximum(
-            self.maxCornerArea[elemTriangle[cond]], cornA[cond])
-        self._cornArea[elemTriangle[cond]] = cornA[cond]
-        self._cornArea[elemTriangle[~cond]] = self.maxCornerArea[elemTriangle[~cond]]
-
-        self.maxCornerCond[elemTriangle[cond]] = np.maximum(
-            self.maxCornerCond[elemTriangle[cond]], cornG[cond])
-        self._cornCond[elemTriangle[cond]] = cornG[cond]
-        self._cornCond[elemTriangle[~cond]] = self.maxCornerCond[elemTriangle[~cond]]
+        arrT = np.flatnonzero(arrrT)
+        condlist = (cornA < self.areaSPhase[arrT])
+        _arrT1, _arrT2 = arrT[condlist], arrT[~condlist]
+        _cornA = cornA[condlist]
+        self.maxCornerArea[_arrT1] = np.maximum(self.maxCornerArea[_arrT1], _cornA)
+        self._cornArea[_arrT1] = _cornA
+        self._cornArea[_arrT2] = self.maxCornerArea[_arrT2]
+        
+        _cornG = cornG[condlist]
+        self.maxCornerCond[_arrT1] = np.maximum(self.maxCornerCond[_arrT1], _cornG)
+        self._cornCond[_arrT1] = _cornG
+        self._cornCond[_arrT2] = self.maxCornerCond[_arrT2]
     
     if any(arrrC):
-        arrrC = self.elemCircle[arrrC]
+        arrC = np.flatnonzero(arrrC)
         self._cornArea[arrrC] = 0.0
         self._cornCond[arrrC] = 0.0
     
@@ -384,70 +402,76 @@ def __computePistonPc__(self):
 
 def __PistonPcHing__(self, arrr):
     ''' compute entry capillary pressures for piston displacement '''
-    arrrS = arrr[self.elemSquare]
-    arrrT = arrr[self.elemTriangle]
-    
-    if np.any(arrrT):
-        self.PistonPcAdv[self.elemTriangle[arrrT]] = Pc_pistonHing(
-            self, self.elemTriangle, arrrT, self.halfAnglesTr.T, self.cornExistsTr,
-            self.initOrMaxPcHistTr, self.initOrMinApexDistHistTr, self.advPcTr,
-            self.recPcTr, self.initedApexDistTr, False)
+  
+    arrrT = self.isTriangle & arrr
+    arrrS = self.isSquare & arrr
+    initialPc = np.nan_to_num(1.1*self.sigma*2.0*self.cosThetaAdvAng/self.Rarray)
+    if np.any(arrrT):        
+        arrT = np.flatnonzero(arrrT)
+        self.PistonPcAdv[arrT] = Pc_pistonHing(
+            self, arrrT, self.m_halfAngles, self.m_cornExists,
+            self.m_initOrMaxPcHist, self.m_initOrMinApexDistHist, self.m_advPc,
+            self.m_recPc, self.m_initedApexDist, initialPc,  3)
     
     if np.any(arrrS):
-        self.PistonPcAdv[self.elemSquare[arrrS]] = Pc_pistonHing(
-            self, self.elemSquare, arrrS, self.halfAnglesSq.reshape(-1,1), self.cornExistsSq,
-            self.initOrMaxPcHistSq, self.initOrMinApexDistHistSq, self.advPcSq,
-            self.recPcSq, self.initedApexDistSq, True)
-    
+        arrS = np.flatnonzero(arrrS)
+        self.PistonPcAdv[arrS] = Pc_pistonHing(
+            self, arrrS, self.m_halfAngles, self.m_cornExists,
+            self.m_initOrMaxPcHist, self.m_initOrMinApexDistHist, self.m_advPc,
+            self.m_recPc, self.m_initedApexDist, initialPc,  4)
 
-def Pc_pistonHing(self, arr, arrr, halfAng, m_exists, m_initOrMaxPcHist,
-                    m_initOrMinApexDistHist, advPc, recPc, initedApexDist, is_square):
-    
-    newPc = 1.1*self.sigma*2.0*self.cosThetaAdvAng[arr]/self.Rarray[arr]
+ 
+def Pc_pistonHing(self, arrr, halfAng, m_cornExists, m_initOrMaxPcHist,
+                    m_initOrMinApexDistHist, advPc, recPc, initedApexDist,
+                    initialPc, nCorners, accurat=True, overidetrapping=True):
     
     arrr1 = arrr.copy()
-    apexDist = np.zeros([arrr.size,1])
+    apexDist = np.zeros(arrr.size)
     counter = 0
+    m = arrr1.size
+    delta = 0.0 if accurat else self._delta
+    sumOne, sumTwo = np.zeros(m), np.zeros(m)
+    sumThree, sumFour = np.zeros(m), np.zeros(m)
+    
     while True:
-        oldPc = newPc.copy()
-        sumOne, sumTwo = np.zeros(arrr.size), np.zeros(arrr.size)
-        sumThree, sumFour = np.zeros(arrr.size), np.zeros(arrr.size)
-        for i in range(m_exists.shape[1]):
-            cond1 = arrr1 & m_exists[:, i]
-                       
-            conAng, apexDist = do.cornerApex(
-                self, arr, cond1, halfAng[i:i+1,:].T, oldPc, self.thetaAdvAng,
-                m_exists[:, i:i+1], m_initOrMaxPcHist[:, i:i+1], 
-                m_initOrMinApexDistHist[:, i:i+1], advPc[:, i:i+1],
-                recPc[:, i:i+1], apexDist, initedApexDist[:, i:i+1], accurat=True, overidetrapping=True, is_square=is_square)
+        oldPc = initialPc.copy()
+        arr1 = np.flatnonzero(arrr1)
+        sumOne[arr1], sumTwo[arr1] = 0.0, 0.0
+        sumThree[arr1], sumFour[arr1] = 0.0, 0.0
+        for i in range(nCorners):
+            conAng, apexDist = do.corner_apex_1D_numba(
+                arrr1, halfAng[:, i], oldPc, self.thetaAdvAng, m_cornExists[:, i],
+                m_initOrMaxPcHist[:, i], m_initOrMinApexDistHist[:, i], advPc[:, i],
+                recPc[:, i], apexDist, initedApexDist[:, i], self.trappedW, self.trappedNW, 
+                self.clusterW.pc, self.clusterNW.pc, self.clusterW_ID, self.clusterNW_ID, 
+                self.sigma, self.thetaAdvAng, self.thetaRecAng, delta, overidetrapping, self.MOLECULAR_LENGTH)
+          
+            partus = apexDist[arr1]*(np.sin(halfAng[arr1,i])*oldPc[arr1]/self.sigma)
+            if not (np.abs(partus) <= 1.0).all():
+                partus[(np.abs(partus) > 1.0)] = 0.0         
+            
+            sumOne[arr1] += (apexDist[arr1]*np.cos(conAng[arr1]))
+            sumTwo[arr1] += (np.pi/2.0-conAng[arr1]-halfAng[arr1, i])
+            sumThree[arr1] += np.arcsin(partus)
+            sumFour[arr1] += apexDist[arr1]
 
-            partus = apexDist*(np.sin(halfAng[i])*oldPc/self.sigma).reshape(-1, 1)
-            if not (abs(partus[cond1]) <= 1.0).all():
-                partus[cond1 & (abs(partus) > 1.0)] = 0.0          
+        a = (2*sumThree[arr1]-sumTwo[arr1])
+        b = ((self.cosThetaAdvAng[arr1]*self.Rarray[arr1]/(
+            2*self.Garray[arr1])) - 2*sumFour[arr1] + sumOne[arr1])
+        c = (-self.Rarray[arr1]**2)/(4*self.Garray[arr1])
 
-            sumOne[cond1] += (apexDist*np.cos(conAng))[cond1].reshape(-1)
-            sumTwo[cond1] += (np.pi/2.0-conAng-halfAng[i:i+1,:].T)[cond1].reshape(-1)
-            sumThree[cond1] += np.arcsin(partus[cond1]).reshape(-1)
-            sumFour[cond1] += apexDist[cond1].reshape(-1)
-
-        a = (2*sumThree-sumTwo)
-        b = ((self.cosThetaAdvAng[arr]*self.Rarray[arr]/(
-            2*self.Garray[arr])) - 2*sumFour + sumOne)
-        c = (-pow(self.Rarray[arr], 2)/(4*self.Garray[arr]))
-
-        arr1 = pow(b, 2)-np.array(4*a*c)
-        cond = (arr1 > 0)
-        newPc[arrr1] = (self.sigma*(2*a[arrr1])/(
-            (-b+np.sqrt(arr1))*cond + (-b)*(~cond))[arrr1])
-        err = 2.0*abs((newPc - oldPc)/(abs(oldPc)+abs(newPc)+1.0e-3))[arrr1]
+        term1 = pow(b, 2)-np.array(4*a*c)
+        cond = (term1 > 0)
+        initialPc[arr1] = (self.sigma*(2*a))/np.where(cond, -b+np.sqrt(term1), -b)
+        err = 2.0*abs((initialPc[arr1] - oldPc[arr1])/(abs(oldPc[arr1])+abs(initialPc[arr1])+1.0e-3))
         counter += 1
         if (err < self.EPSILON).all() or (counter > self.MAX_ITER):
             break
-        arrr1[arrr1] = (err >= self.EPSILON)
+        arrr1[arr1] = (err >= self.EPSILON)
 
-    newPc[np.isnan(newPc)] = 0.0
+    initialPc[np.isnan(initialPc)] = 0.0
 
-    return newPc[arrr]
+    return initialPc[arrr]
 
 
 def __computeSnapoffPc__(self):

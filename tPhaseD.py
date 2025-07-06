@@ -44,34 +44,14 @@ def initialize(self):
     self.connNW = np.zeros(self.totElements, dtype='bool')
     arrr = self.hasWFluid.copy()
     arrr[[0,-1]] = False
-    #print('@@:  ', self.trappedW.sum(), self.trappedNW.sum())
     do.check_Trapping_Clustering(
         self, self.elementListS[arrr], arrr.copy(), 0, 0, True, False)
-    # print('££:  ', self.trappedW.sum(), self.trappedNW.sum())
-    # from IPython import embed; embed()
-
+   
     self.contactAng, self.thetaRecAng, self.thetaAdvAng =\
         do.__wettabilityDistribution__(self)
     self.Fd_Tr = do.__computeFd__(self, self.elemTriangle, self.halfAnglesTr)
     self.Fd_Sq = do.__computeFd__(self, self.elemSquare, self.halfAnglesSq)
-    
-    self.cornExistsTr = np.zeros([self.nTriangles, 3], dtype='bool')
-    self.cornExistsSq = np.zeros([self.nSquares, 4], dtype='bool')
-    self.initedTr = np.zeros([self.nTriangles, 3], dtype='bool')
-    self.initedSq = np.zeros([self.nSquares, 4], dtype='bool')
-    self.initOrMaxPcHistTr = np.zeros([self.nTriangles, 3])
-    self.initOrMaxPcHistSq = np.zeros([self.nSquares, 4])
-    self.initOrMinApexDistHistTr = np.zeros([self.nTriangles, 3])
-    self.initOrMinApexDistHistSq = np.zeros([self.nSquares, 4])
-    self.initedApexDistTr = np.zeros([self.nTriangles, 3])
-    self.initedApexDistSq = np.zeros([self.nSquares, 4])
-    self.advPcTr = np.zeros([self.nTriangles, 3])
-    self.advPcSq = np.zeros([self.nSquares, 4])
-    self.recPcTr = np.zeros([self.nTriangles, 3])
-    self.recPcSq = np.zeros([self.nSquares, 4])
-    self.hingAngTr = np.zeros([self.nTriangles, 3])
-    self.hingAngSq = np.zeros([self.nSquares, 4])
-    
+       
     do.__initCornerApex__(self)
     __computePistonPc__(self)
     self.PcD[:] = self.PistonPcRec
@@ -94,8 +74,6 @@ def initialize(self):
     self.qW, self.qNW = self.qwSPhase, 0.0
     self.krw, self.krnw = 1.0, 0.0
     self.totNumFill = 0
-
-    
 
     
 def LookupList(self, k):
@@ -181,13 +159,6 @@ def drainage(self):
     print('Time spent for the drainage process: ', time() - start)        
     print('==========================================================\n\n')
 
-    if self.saveDrainage:
-        import dill
-        MEMORY_DIR = f"./saved_simulation_{self.title}"
-        os.makedirs(MEMORY_DIR, exist_ok=True)
-        with open(os.path.join(MEMORY_DIR, f"drainage_{int(self.maxPc)}.pkl"),"wb") as f:
-            dill.dump(self, f)
-
     print(f'no of pops: {self.pop}, no of updates: {self.update}')
     
 
@@ -244,7 +215,6 @@ def __PDrainage__(self):
         if (self.PcD[self.ElemToFill[0]] > self.PcTarget):
             self.capPresMax = max(self.capPresMax, self.PcTarget)
             endWhile = True
-        
         
         __CondTP_Drainage__(self)
         self.satW = do.Saturation(self, self.areaWPhase, self.areaSPhase)
@@ -321,63 +291,40 @@ def __CondTP_Drainage__(self):
     arrr[[0, -1]] = False
     if not np.any(arrr):
         return
-    
-    arrrS = arrr[self.elemSquare]
-    arrrT = arrr[self.elemTriangle]
-    arrrC = arrr[self.elemCircle]
-    if np.any(arrrT):
-        Pc = self.PcD[self.elemTriangle]
-        curConAng = self.contactAng.copy()
-        do.createFilms(self, self.elemTriangle, arrrT, self.halfAnglesTr, Pc,
-            self.cornExistsTr, self.initedTr,
-            self.initOrMaxPcHistTr,
-            self.initOrMinApexDistHistTr, self.advPcTr,
-            self.recPcTr, self.initedApexDistTr)
-        apexDist = np.zeros(self.hingAngTr.shape)
-        conAngPT, apexDistPT = do.cornerApex(
-            self, self.elemTriangle, arrrT, self.halfAnglesTr, self.capPresMax,
-            curConAng, self.cornExistsTr, self.initOrMaxPcHistTr,
-            self.initOrMinApexDistHistTr, self.advPcTr,
-            self.recPcTr, apexDist, self.initedApexDistTr)
-        
-        cornA, cornG = do.calcAreaW(
-            self, arrrT, self.halfAnglesTr, conAngPT, self.cornExistsTr, apexDistPT)
-        
-        arrrT = self.elemTriangle[arrrT]
-        condlist = (cornA < self._cornArea[arrrT])
-        self._cornArea[arrrT[condlist]] = cornA[condlist]
+      
+    arrrT = arrr & self.isTriangle
+    arrrS = arrr & self.isSquare
+    arrrC = arrr & self.isCircle
 
-        condlist = (cornG < self._cornCond[arrrT])
-        self._cornCond[arrrT[condlist]] = cornG[condlist]
+    Pc = np.full(self.totElements, self.capPresMax)
+    if np.any(arrrT):
+        do.createFilms(self, arrrT, self.PcD, 3)
+        conAngPT, apexDistPT = do.cornerApex(self, arrrT, Pc, 
+			self.contactAng.copy(), self.m_cornExists, 3)
+       
+        cornA, cornG = do.calcAreaW(self, arrrT, conAngPT, apexDistPT, 3)
+        arrT = np.flatnonzero(arrrT)
+        condlist = (cornA < self._cornArea[arrT])
+        self._cornArea[arrT[condlist]] = cornA[condlist]
+
+        condlist = (cornG < self._cornCond[arrT])
+        self._cornCond[arrT[condlist]] = cornG[condlist]
     
     if np.any(arrrS):
-        Pc = self.PcD[self.elemSquare]
-        curConAng = self.contactAng.copy()
-        halfAnglesSq = self.halfAnglesSq.reshape(1,-1)
-        do.createFilms(self, self.elemSquare, arrrS, halfAnglesSq,
-                        Pc, self.cornExistsSq, self.initedSq, self.initOrMaxPcHistSq,
-                        self.initOrMinApexDistHistSq, self.advPcSq,
-                        self.recPcSq, self.initedApexDistSq)
+        do.createFilms(self, arrrS, self.PcD, 4)
+        conAngPS, apexDistPS = do.cornerApex(self, arrrS, Pc, 
+			self.contactAng.copy(), self.m_cornExists, 4)
+            
+        cornA, cornG = do.calcAreaW(self, arrrS, conAngPS, apexDistPS, 4)
+        arrS = np.flatnonzero(arrrS)
+        condlist = (cornA < self._cornArea[arrS])
+        self._cornArea[arrS[condlist]] = cornA[condlist]
 
-        apexDist = np.zeros(self.hingAngSq.shape)
-        conAngPS, apexDistPS = do.cornerApex(
-            self, self.elemSquare, arrrS, halfAnglesSq, self.capPresMax,
-            curConAng, self.cornExistsSq, self.initOrMaxPcHistSq,
-            self.initOrMinApexDistHistSq, self.advPcSq,
-            self.recPcSq, apexDist, self.initedApexDistSq)
-
-        cornA, cornG = do.calcAreaW(
-            self, arrrS, halfAnglesSq, conAngPS, self.cornExistsSq, apexDistPS)
-        
-        arrrS = self.elemSquare[arrrS]
-        condlist = (cornA < self._cornArea[arrrS])
-        self._cornArea[arrrS[condlist]] = cornA[condlist]
-
-        condlist = (cornG < self._cornCond[arrrS])
-        self._cornCond[arrrS[condlist]] = cornG[condlist]
+        condlist = (cornG < self._cornCond[arrS])
+        self._cornCond[arrS[condlist]] = cornG[condlist]
     
     if np.any(arrrC):
-        arrrC = self.elemCircle[arrrC]
+        arrrC = np.flatnonzero(arrrC)
         self._cornArea[arrrC] = 0.0
         self._cornCond[arrrC] = 0.0
 

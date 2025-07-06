@@ -36,6 +36,7 @@ def singlephase(self):
     print('---------------------------Single Phase---------------------------')
     Computations(self)
     gLSP = do.computegL(self, self.gSP)
+    #from IPython import embed; embed()
     
     arrr = np.zeros(self.totElements, dtype='bool')    
     arrr[self.P1array[(gLSP > 0.0)]] = True
