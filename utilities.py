@@ -46,6 +46,12 @@ def compute_gL_numba(P1array, P2array, tList, LP1, LP2, LT, g, nThroats):
     return gL
 
 
+
+def check_Trapping_ClusteringNew(self, arr, notdone, fluid, Pc, updateCluster=False,
+                                updateConnectivity=False, updatePcClustConToInlet=True):
+                                    
+    return check_Trapping_Clustering_numba()
+    
 def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False,
                                 updateConnectivity=False, updatePcClustConToInlet=True):
     i = 0
@@ -565,7 +571,6 @@ def createFilms(self, arrr, Pc, nCorners):
     )
 
  
-@njit
 def calcAreaW(self, arrr, conAng, apexDist, nCorners):
     return calcAreaW_numba(arrr, self.m_halfAngles, conAng, self.m_cornExists,
                 apexDist, self.muw, nCorners)
@@ -711,7 +716,6 @@ def finitCornerApex_numbaOld(arr, cond, halfAng, Pc, m_inited, m_initOrMaxPcHist
             m_initedApexDist[i,j] = apexDist_ij
     
 
-@njit
 def cornerApex(self, arrr, Pc, contactAng, m_cornExists, nCorners, accurat=False, overidetrapping=False):
     
     delta = 0.0 if accurat else self._delta
@@ -929,7 +933,6 @@ def initCornerApex(self, arr, arrr, halfAng, m_cornExists, m_inited,
                         self.thetaRecAng, self.thetaAdvAng, self.sigma)
                                         
 
-@njit
 def __initCornerApex__(self):
     trapped = (self.trappedW | self.trappedNW)
     arrr = self.connected

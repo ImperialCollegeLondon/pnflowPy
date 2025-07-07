@@ -332,8 +332,6 @@ def __CondTP_Drainage__(self):
     self._centerCond[arrr] = self._centerArea[arrr]/self.areaSPhase[arrr]*self.gnwSPhase[arrr]
 
     
-
-
 def __fileName__(self):
     result_dir = "./results_csv/"
     os.makedirs(os.path.dirname(result_dir), exist_ok=True)

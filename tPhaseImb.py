@@ -1,6 +1,7 @@
 import os
 import warnings
 from time import time
+from numba import njit, prange
 
 import numpy as np
 import pandas as pd
@@ -245,101 +246,77 @@ def popUpdateWaterInj(self):
     
 
 def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True, overrideTrapping=False):
-    # to suppress the FutureWarning and SettingWithCopyWarning respectively
-    warnings.simplefilter(action='ignore', category=FutureWarning)
-    pd.options.mode.chained_assignment = None#
-
     if arrr is None:
         arrr = np.ones(self.totElements, dtype=bool)
-    # arrrS = arrr[self.isSquare]
-    # arrrT = arrr[self.isTriangle]
-    # arrrC = arrr[self.isCircle]
-    
+     
     arrrS = arrr & self.isSquare
     arrrT = arrr & self.isTriangle
     arrrC = arrr & self.isCircle
+    cornA = np.zeros(self.totElements, dtype=np.float64)
+    cornG = np.zeros_like(cornA)
 
     if Pc is None:
         Pc = np.full(self.totElements, self.capPresMin)
     
-    if np.any(arrrS):
-        # curConAng = self.contactAng.copy()
-        # halfAnglesSq = self.halfAnglesSq.reshape(1,-1)
-        # apexDist = np.empty_like(self.hingAngSq)
-        # conAngPS, apexDistPS = do.cornerApex(
-            # self, self.elemSquare, arrrS, halfAnglesSq, Pc[self.elemSquare],
-            # curConAng, self.cornExistsSq, self.initOrMaxPcHistSq,
-            # self.initOrMinApexDistHistSq, self.advPcSq,
-            # self.recPcSq, apexDist, self.initedApexDistSq)
-            
+    if np.any(arrrS):      
+        arrS = np.flatnonzero(arrrS)      
         conAngPS, apexDistPS = do.cornerApex(self, arrrS, Pc, 
             self.contactAng.copy(), self.m_cornExists, 4)
-        cornA, cornG = do.calcAreaW(self, arrrS, conAngPS, apexDistPS, 4)
+        cornA[arrS], cornG[arrS] = do.calcAreaW(self, arrrS, conAngPS, apexDistPS, 4)
         
-        arrS = np.flatnonzero(arrrS)
-        condlist = (cornA < self.areaSPhase[arrS])
-        _arrS1, _arrS2 = arrS[condlist], arrS[~condlist]
-        _cornA = cornA[condlist]
-        self.maxCornerArea[_arrS1] = np.maximum(self.maxCornerArea[_arrS1], _cornA)
-        self._cornArea[_arrS1] = _cornA
-        self._cornArea[_arrS2] = self.maxCornerArea[_arrS2]
-        
-        _cornG = cornG[condlist]
-        self.maxCornerCond[_arrS1] = np.maximum(self.maxCornerCond[_arrS1], _cornG)
-        self._cornCond[_arrS1] = _cornG
-        self._cornCond[_arrS2] = self.maxCornerCond[_arrS2]
-        
-        
-        
-        
-        
-        # cornA, cornG = do.calcAreaW(
-            # self, arrrS, halfAnglesSq, conAngPS, self.cornExistsSq, apexDistPS)
-        
-        # elemSquare = self.elemSquare[arrrS]
-        # cond = (cornA<self.areaSPhase[elemSquare])
-        # self.maxCornerArea[elemSquare[cond]] = np.maximum(
-            # self.maxCornerArea[elemSquare[cond]], cornA[cond])
-        # self._cornArea[elemSquare[cond]] = cornA[cond]
-        # self._cornArea[elemSquare[~cond]] = self.maxCornerArea[elemSquare[~cond]]
-
-        # self.maxCornerCond[elemSquare[cond]] = np.maximum(
-            # self.maxCornerCond[elemSquare[cond]], cornG[cond])
-        # self._cornCond[elemSquare[cond]] = cornG[cond]
-        # self._cornCond[elemSquare[~cond]] = self.maxCornerCond[elemSquare[~cond]]
-    
-    if np.any(arrrT):        
+    if np.any(arrrT):
+        arrT = np.flatnonzero(arrrT)     
         conAngPT, apexDistPT = do.cornerApex(self, arrrT, Pc, 
             self.contactAng.copy(), self.m_cornExists, 3)
-        cornA, cornG = do.calcAreaW(self, arrrT, conAngPT, apexDistPT, 4)
+        cornA[arrT], cornG[arrT] = do.calcAreaW(self, arrrT, conAngPT, apexDistPT, 4)
         
-        arrT = np.flatnonzero(arrrT)
-        condlist = (cornA < self.areaSPhase[arrT])
-        _arrT1, _arrT2 = arrT[condlist], arrT[~condlist]
-        _cornA = cornA[condlist]
-        self.maxCornerArea[_arrT1] = np.maximum(self.maxCornerArea[_arrT1], _cornA)
-        self._cornArea[_arrT1] = _cornA
-        self._cornArea[_arrT2] = self.maxCornerArea[_arrT2]
-        
-        _cornG = cornG[condlist]
-        self.maxCornerCond[_arrT1] = np.maximum(self.maxCornerCond[_arrT1], _cornG)
-        self._cornCond[_arrT1] = _cornG
-        self._cornCond[_arrT2] = self.maxCornerCond[_arrT2]
-    
-    if any(arrrC):
+    if np.any(arrrC):
         arrC = np.flatnonzero(arrrC)
-        self._cornArea[arrrC] = 0.0
-        self._cornCond[arrrC] = 0.0
-    
-    self._centerArea = self.areaSPhase - self._cornArea
-    self._centerCond = np.where(
-        self.areaSPhase != 0.0, 
-        self._centerArea/self.areaSPhase*self.gnwSPhase, 0.0)
-    
-    if updateArea:     
-        __updateAreaCond__(self, arrr, overrideTrapping)
+        self._cornArea[arrC] = 0.0
+        self._cornCond[arrC] = 0.0
+          
+    check_update_corner_area_cond(arrr, cornA, cornG, self.maxCornerArea, 
+        self.maxCornerCond, self.areaSPhase, self.trappedNW, self.fluid, 
+        self._areaWP, self._areaNWP, self._condWP, self._condNWP,
+        self._cornArea, self._cornCond, self._centerArea, self._centerCond,
+        self.gwSPhase, self.gnwSPhase, updateArea, overrideTrapping)
+   
 
-
+@njit(parallel=True, cache=True)
+def check_update_corner_area_cond(arrr, cornArea, cornCond, maxCornerArea, 
+    maxCornerCond, areaSPhase, trapped, fluid, _areaWP, _areaNWP, _condWP, 
+    _condNWP,_cornerArea, _cornerCond, _centerArea, _centerCond,
+    gwSPhase, gnwSPhase, updateArea, overrideTrapping):
+        
+    arr = np.flatnonzero(arrr)
+    n = arr.size
+    for i in prange(n):
+        idx = arr[i]
+        if cornArea[idx] > areaSPhase[idx]:
+            cornArea[idx] = maxCornerArea[idx]
+            cornCond[idx] = maxCornerCond[idx]
+        elif cornArea[idx] > maxCornerArea[idx]:
+            maxCornerArea[idx] = cornArea[idx]
+            maxCornerCond[idx] = cornCond[idx]
+            
+        _cornerArea[idx] = cornArea[idx]
+        _cornerCond[idx] = cornCond[idx]
+        _centerArea[idx] = areaSPhase[idx] - cornArea[idx]  
+        _centerCond[idx] = _centerArea[idx]/areaSPhase[idx]*gnwSPhase[idx]
+        
+        if updateArea and (overrideTrapping or not trapped[idx]):
+            if fluid[idx]==0:
+                _areaWP[idx] = areaSPhase[idx]
+                _areaNWP[idx] = 0.0
+                _condWP[idx] = gwSPhase[idx]
+                _condNWP[idx] = 0.0
+            else:
+                _areaWP[idx] = cornArea[idx]
+                _areaNWP[idx] = _centerArea[idx]
+                _condWP[idx] = cornCond[idx]
+                _condNWP[idx] = _centerCond[idx]
+        
+        
 def __updateAreaCond__(self, arrr, overrideTrapping):
     if not overrideTrapping:
         arrr = (arrr & ~self.trappedNW)
