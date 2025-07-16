@@ -161,6 +161,11 @@ def drainage(self):
 
     print(f'no of pops: {self.pop}, no of updates: {self.update}')
     
+    # import dill
+    # MEMORY_DIR = f"./saved_simulation_{self.title}"
+    # with open(os.path.join(MEMORY_DIR, f"drainage_{int(self.capPresMax)}.pkl"),"wb") as f:
+        # dill.dump(self, f)
+    
 
 def popUpdateOilInj(self):
     self.pop += 1
@@ -300,7 +305,7 @@ def __CondTP_Drainage__(self):
     if np.any(arrrT):
         do.createFilms(self, arrrT, self.PcD, 3)
         conAngPT, apexDistPT = do.cornerApex(self, arrrT, Pc, 
-			self.contactAng.copy(), self.m_cornExists, 3)
+            self.contactAng.copy(), self.m_cornExists, 3)
        
         cornA, cornG = do.calcAreaW(self, arrrT, conAngPT, apexDistPT, 3)
         arrT = np.flatnonzero(arrrT)
@@ -313,7 +318,7 @@ def __CondTP_Drainage__(self):
     if np.any(arrrS):
         do.createFilms(self, arrrS, self.PcD, 4)
         conAngPS, apexDistPS = do.cornerApex(self, arrrS, Pc, 
-			self.contactAng.copy(), self.m_cornExists, 4)
+            self.contactAng.copy(), self.m_cornExists, 4)
             
         cornA, cornG = do.calcAreaW(self, arrrS, conAngPS, apexDistPS, 4)
         arrS = np.flatnonzero(arrrS)

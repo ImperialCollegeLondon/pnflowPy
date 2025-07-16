@@ -412,10 +412,11 @@ def weibull(self) -> np.array:
             1.0/self.eta) + self.minthetai
     
 
-def __wettabilityDistribution__(self) -> np.array:
+def __wettabilityDistribution__(self, conAng=None, shuffle=True, randNum=None) -> np.array:
     ''' compute the distribution of contact angles in the network '''
     contactAng = np.zeros(self.totElements)
-    conAng = weibull(self)        
+    if conAng is None:
+        conAng = weibull(self)        
 
     arr = np.array([conAng[self.poreList-1].mean(), conAng[self.poreList-1].std(),
         conAng[self.poreList-1].min(), conAng[self.poreList-1].max()])*180/np.pi
@@ -437,11 +438,13 @@ def __wettabilityDistribution__(self) -> np.array:
         cond2 = (self.fluid[self.poreList] == 1)
 
         sortedPoreIndex = self.poreList.copy()
-        self.shuffle(sortedPoreIndex)
-        self.shuffle(conAng)
+        if shuffle:
+            self.shuffle(sortedPoreIndex)
+            self.shuffle(conAng)
         contactAng[sortedPoreIndex] = conAng.copy()  #'''
         
-    randNum = self.rand(self.nThroats)
+    if randNum is None:
+        randNum = self.rand(self.nThroats)
     conda = (self.P1array > 0)
     condb = (self.P2array > 0)
     condc = (conda & condb)

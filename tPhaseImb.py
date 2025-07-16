@@ -25,6 +25,10 @@ def initialize(self):
     self.fillmech = np.full(self.totElements, -5)
     self.capPresMin = self.maxPc
     
+    self.maxCornerArea = np.zeros(self.totElements)
+    self.maxCornerCond = np.zeros(self.totElements)
+    
+    #tuneContactAngles(self)
     self.contactAng, self.thetaRecAng, self.thetaAdvAng =\
         do.__wettabilityDistribution__(self)
     self.cosThetaAdvAng = np.cos(self.thetaAdvAng)
@@ -49,8 +53,7 @@ def initialize(self):
     self._centerCond = self._condNWP.copy()
             
     self.specialPcD = np.zeros(self.totElements)
-    self.maxCornerArea = np.zeros(self.totElements)
-    self.maxCornerCond = np.zeros(self.totElements)
+    
 
 def imbibition(self):
     start = time()
@@ -130,6 +133,13 @@ def imbibition(self):
     print('===========================================================\n\n')
 
     print(f'no of pops: {self.pop}, no of updates: {self.update}')
+    
+    # import dill
+    # MEMORY_DIR = f"./saved_simulation_{self.title}"
+    # os.makedirs(MEMORY_DIR, exist_ok=True)
+    # with open(os.path.join(MEMORY_DIR, f"imbibition_{self.capPresMin}.pkl"),"wb") as f:
+        # dill.dump(self, f)
+    from IPython import embed; embed()
 
 
 def __PImbibition__(self):
@@ -144,9 +154,7 @@ def __PImbibition__(self):
         while (self.invInsideBox < self.fillTarget) and (
             len(self.ElemToFill) != 0) and (
                 self.PcI[self.ElemToFill[0]] >= self.PcTarget):
-            if not self.fillTillNWDisconnected or (
-                self.clusterNW.members[0][self.conTToIn].any() and 
-                self.clusterNW.members[0][self.conTToOutletBdr].any()):
+            if not self.fillTillNWDisconnected or self.clusterNW.connected[0]:
                 popUpdateWaterInj(self)
             else:
                 self.filling = False
@@ -163,6 +171,7 @@ def __PImbibition__(self):
         __CondTPImbibition__(self)
         self.satW = do.Saturation(self, self.areaWPhase, self.areaSPhase)
         self.totNumFill += self.cnt
+        
         if not continue_to_fill or not self.filling or (
             self.PcI[self.ElemToFill[0]] < self.PcTarget):
             break
@@ -180,7 +189,7 @@ def __PImbibition__(self):
     self.resultI_str = do.writeResult(self, self.resultI_str, self.capPresMin)
     
 
-def fillWithWater(self, k):
+def fillWithWaterOld(self, k):
     self.fluid[k] = 0
     if self.hasWFluid[k]:
         return
@@ -210,7 +219,50 @@ def fillWithWater(self, k):
             True, False, True)
         ii = self.clusterW_ID[k]
         self.connW[k] = self.clusterW[ii].connected
+        
+@njit(cache=True)
+def fillWithWater_numba(k, fluidArray, hasWFluid, neigh, clusterW_ID, 
+    clusterW_members, connW, clustConnStatus):
+    fluidArray[k] = 0
+    ids = np.empty(0, dtype=np.int64)
+    if hasWFluid[k]: 
+        return ids
+    neigh = neigh[neigh>0]
+    hasWFluid[k] = True
+    neighW = neigh[hasWFluid[neigh]]
+    ids = clusterW_ID[neighW]
+    
+    if ids.size>0:
+        ii = min(ids)
+        ''' newly filled takes the properties of already filled neighbour '''
+        clusterW_ID[k] = ii
+        clusterW_members[ii, k] = True
+        connW[k] = clustConnStatus[ii]
+        ids = ids[ids!=ii]
+        if ids.size>0:
+            ''' need to coalesce '''
+            _, mem = np.nonzero(clusterW_members[ids])
+            for idx in mem:
+                clusterW_members[ii, idx] = True
+            clusterW_members[ids] = False
+            clusterW_ID[mem] = ii
+        
+    return ids
+        
 
+def fillWithWater(self, k):
+    neigh = np.array(self.connectivity_graph[k])
+    ids = fillWithWater_numba(k, self.fluid, self.hasWFluid, neigh, 
+        self.clusterW_ID, self.clusterW.members, self.connW, self.clusterW.connected)
+    if ids.size>0:
+        self.clusterW.availableID.update(ids)
+    else:
+        do.check_Trapping_Clustering(
+            self, np.array([k]), self.hasWFluid.copy(), 0, self.capPresMin, 
+            True, False, True)
+        ii = self.clusterW_ID[k]
+        self.connW[k] = self.clusterW[ii].connected
+        
 
 def unfillWithOil(self, k, Pc, updateCluster=False, updateConnectivity=False, 
                     updatePcClustConToInlet=True, updatePc=True, adjustPc=False):
@@ -221,13 +273,13 @@ def unfillWithOil(self, k, Pc, updateCluster=False, updateConnectivity=False,
     self.clusterNW.members[kk,k] = False
     neigh = self.elem[k].neighbours[self.elem[k].neighbours>0]
     neigh = neigh[self.hasNWFluid[neigh]]
-    
-    do.check_Trapping_Clustering(
-        self, neigh.copy(), self.hasNWFluid.copy(), 1, Pc, 
-        updateCluster, updateConnectivity, updatePcClustConToInlet)
-    if updatePc:
-        neighb = neigh[~self.trappedNW[neigh]]
-        __computePc__(self, self.capPresMin, neighb)
+    if neigh.any():
+        do.check_Trapping_Clustering(
+            self, neigh.copy(), self.hasNWFluid.copy(), 1, Pc, 
+            updateCluster, updateConnectivity, updatePcClustConToInlet)
+        if updatePc:
+            neighb = neigh[~self.trappedNW[neigh]]
+            __computePc__(self, self.capPresMin, neighb)
 
 
 def popUpdateWaterInj(self):
@@ -280,6 +332,9 @@ def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True, overrideTrap
         self._areaWP, self._areaNWP, self._condWP, self._condNWP,
         self._cornArea, self._cornCond, self._centerArea, self._centerCond,
         self.gwSPhase, self.gnwSPhase, updateArea, overrideTrapping)
+    
+    #print('1111111111111111111222')
+    #from IPython import embed; embed()
    
 
 @njit(parallel=True, cache=True)
@@ -382,7 +437,7 @@ def __PistonPcHing__(self, arrr):
   
     arrrT = self.isTriangle & arrr
     arrrS = self.isSquare & arrr
-    initialPc = np.nan_to_num(1.1*self.sigma*2.0*self.cosThetaAdvAng/self.Rarray)
+    initialPc = np.divide(1.1*self.sigma*2.0*self.cosThetaAdvAng, self.Rarray, where=(self.Rarray!=0.0))
     if np.any(arrrT):        
         arrT = np.flatnonzero(arrrT)
         self.PistonPcAdv[arrT] = Pc_pistonHing(
@@ -567,7 +622,7 @@ def __func4(self, arr, trapping=True):
     arrr = np.concatenate((hasWFluid, hasValidNeighP, hasValidNeighT))
     self.NWElemNotInToFill[arrr] = False
     return arrr
-
+   
 
 def __porebodyFilling__(self, ind):
     if ind.size > 0:
@@ -582,7 +637,130 @@ def __porebodyFilling__(self, ind):
             2*self.cosThetaAdvAng[ind]/self.Rarray[ind] - sumrand)
     
 
+def tuneContactAngles(self, tol=1e-20, max_iter=50, max_bracket_iter=180,
+    min_contact_angle=0.0, max_contact_angle=np.pi):
+        
+    self.is_oil_inj = False
+    randNum = self.rand(self.nThroats)
 
+    # Targets
+    areaW_target = self._areaWP.copy()
+    areaNW_target = self._areaNWP.copy()
+
+    # Initial wettability guess
+    contactAng0, _, _ = do.__wettabilityDistribution__(self, shuffle=False, randNum=randNum)
+    tune_func1(self, self.hasNWFluid.copy(), contactAng0, contactAng0, contactAng0)
+    areaW0 = self._areaWP.copy()
+
+    # Start with ±1°
+    delta = np.pi / 180
+    lower = contactAng0 - delta
+    upper = contactAng0 + delta
+
+    tune_func1(self, self.hasNWFluid.copy(), lower, lower, lower)
+    areaW_lo = self._areaWP.copy()
+
+    tune_func1(self, self.hasNWFluid.copy(), upper, upper, upper)
+    areaW_hi = self._areaWP.copy()
+
+    # Find unbracketed entries
+    not_bracketed = ((areaW_lo - areaW_target) * (areaW_hi - areaW_target)) > 0
+    expanding = not_bracketed.copy()
+
+    iter_bracket = 0
+    while np.any(expanding) and iter_bracket < max_bracket_iter:
+        # Expand bracket for problematic entries
+        # If both above or both below, push one end further out
+        too_low = (areaW_lo < areaW_target) & (areaW_hi < areaW_target)
+        too_high = (areaW_lo > areaW_target) & (areaW_hi > areaW_target)
+
+        # Expand upper
+        upper[too_low & expanding] = np.minimum(upper[too_low & expanding] + delta, max_contact_angle)
+        tune_func1(self, self.hasNWFluid.copy(), upper, upper, upper)
+        areaW_hi = self._areaWP.copy()
+
+        # Expand lower
+        lower[too_high & expanding] = np.maximum(lower[too_high & expanding] - delta, min_contact_angle)
+        tune_func1(self, self.hasNWFluid.copy(), lower, lower, lower)
+        areaW_lo = self._areaWP.copy()
+
+        # Check if further expansion is possible for unbracketed entries
+        no_more_upper = (upper >= max_contact_angle) & too_low
+        no_more_lower = (lower <= min_contact_angle) & too_high
+        no_more_expansion = expanding & (no_more_upper | no_more_lower)
+        if np.all(no_more_expansion == expanding):  # Only stop if ALL unbracketed are stuck
+            print(f"[Bracketing] Stopped early: {np.sum(expanding)} throats hit contact angle limits at iteration {iter_bracket}")
+            break
+
+        # Check again
+        expanding = expanding & (((areaW_lo - areaW_target) * (areaW_hi - areaW_target)) > 0)
+        iter_bracket += 1
+        print(f'# of iterations: {iter_bracket}, # unbracketed: {expanding.sum()}')
+
+    if np.any(expanding):
+        print(f"Warning: Could not bracket {np.sum(expanding)} elements after {iter_bracket} expansions.")
+        # You can either:
+        # - raise an error
+        # - set those to contactAng0
+        # - or use fallback logic
+
+    # Now do bisection only for bracketed entries
+    guess = 0.5 * (lower + upper)
+    guess[expanding] = contactAng0[expanding]
+    active = ((areaW_lo - areaW_target) * (areaW_hi - areaW_target)) < 0
+    iter_count = 0
+
+    if not np.any(active):
+        print("Warning: No elements successfully bracketed.")
+        return
+
+    # Evaluate the initial midpoint
+    tune_func1(self, self.hasNWFluid.copy(), guess, guess, guess)
+    areaW_guess = self._areaWP.copy()
+    print(f'{active.sum()}\n areaW_lo:{areaW_lo[active]}\n conAng_lo:{lower[active]}\n areaW_hi:{areaW_hi[active]}\n conAng_hi:{upper[active]}')
+
+    while np.any(active) and iter_count < max_iter:
+        # Determine which side of the bracket to update
+        too_low = (areaW_guess < areaW_target) & active
+        too_high = (areaW_guess > areaW_target) & active
+
+        # Update bounds and corresponding area values
+        lower[too_low] = guess[too_low]
+        areaW_lo[too_low] = areaW_guess[too_low]
+
+        upper[too_high] = guess[too_high]
+        areaW_hi[too_high] = areaW_guess[too_high]
+
+        # New midpoint
+        guess[active] = 0.5 * (lower[active] + upper[active])
+        tune_func1(self, self.hasNWFluid.copy(), guess, guess, guess)
+        areaW_guess = self._areaWP.copy()
+
+        # Update active status
+        active = active & (np.abs(areaW_guess - areaW_target) > tol)
+        iter_count += 1
+
+        print(f'# of iterations: {iter_count}, # active: {active.sum()}')
+
+    print(f'[tuneContactAngles] Converged in {iter_count} bisection steps, {iter_bracket} bracket expansions.')    
+
+
+    
+def tune_func1(self, arrr, contactAng, thetaRecAng, thetaAdvAng):
+    self.contactAng = contactAng.copy()
+    self.thetaAdvAng = thetaAdvAng.copy()
+    self.thetaRecAng =  thetaRecAng.copy()
+    self.cosThetaAdvAng = np.cos(self.thetaAdvAng)
+    self.sinThetaAdvAng = np.sin(self.thetaAdvAng)
+    self.cosThetaRecAng = np.cos(self.thetaRecAng)
+    self.sinThetaRecAng = np.sin(self.thetaRecAng)
+    do.__initCornerApex__(self)
+    __CondTPImbibition__(self, arrr)
+    
+    
+    
+    
+    
 def __writeHeadersI__(self):
     self.resultI_str="======================================================================\n"
     self.resultI_str+="# Fluid properties:\nsigma (mN/m)  \tmu_w (cP)  \tmu_nw (cP)\n"

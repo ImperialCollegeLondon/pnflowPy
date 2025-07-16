@@ -38,7 +38,7 @@ class Network(InputData):
         self.title = self.network()
         self.calcBox = self.__calcBox__()
         self.SEED = self.randSeed()
-        np.random.seed(self.SEED)
+        self.rng = np.random.default_rng(self.SEED)  # Creates a Generator instance
         self.dirname = os.path.dirname(__file__)
     
         self.__readNetworkFiles__()
@@ -229,13 +229,13 @@ class Network(InputData):
         
     
     def rand(self, a=1):
-        return np.random.randint(0, self.RAND_MAX, size=a)/self.RAND_MAX
+        return self.rng.integers(0, self.RAND_MAX, size=a)/self.RAND_MAX
     
     def shuffle(self, obj):
-        np.random.shuffle(obj)
+        return self.rng.shuffle(obj)
 
     def choice(self, obj, size=1):
-        return np.random.choice(obj, size)
+        return self.rng.choice(obj, size)
     
     def __identifyConnectedElements__(self):
         ttt = self.tList[(self.P1array<=0)|(self.P2array<-0)]
