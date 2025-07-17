@@ -80,10 +80,12 @@ def imbibition(self):
             self.satW-self.SwTarget)))
             
     # import dill
-    # MEMORY_DIR = f"./saved_simulation_{self.title}"
+    # MEMORY_DIR = f"./saved_simulation_{self.title}_16072025"
     # os.makedirs(MEMORY_DIR, exist_ok=True)
-    # targetFluid_pore = np.loadtxt('/home/aiadebimpe/PoreFlow/data/fPores_BentSepi_imbibition_fluid_occupancy.dat', dtype=int)
-    # targetFluid_throat = np.loadtxt('/home/aiadebimpe/PoreFlow/data/fThroats_BentSepi_imbibition _fluid_occupancy.dat', dtype=int)
+    #targetFluid_pore = np.loadtxt(
+     #   '/data4/Ademola/OstRipening/data/fPores_BentSepi_imbibition_fluid_occupancy.dat', #dtype=int)
+    #targetFluid_throat = np.loadtxt(
+     #   '/data4/Ademola/OstRipening/data/fThroats_BentSepi_imbibition _fluid_occupancy.dat', #dtype=int)
     # targetFluid = np.zeros_like(self.fluid)
     # targetFluid[self.poreList] = (targetFluid_pore==2)
     # targetFluid[self.tList] = (targetFluid_throat==2)

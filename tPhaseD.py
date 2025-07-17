@@ -163,7 +163,7 @@ def drainage(self):
     #from IPython import embed; embed()
     
     # import dill
-    # MEMORY_DIR = f"./saved_simulation_{self.title}"
+    # MEMORY_DIR = f"./saved_simulation_{self.title}_16072025"
     # with open(os.path.join(MEMORY_DIR, f"drainage_{int(self.capPresMax)}.pkl"),"wb") as f:
         # dill.dump(self, f)
     
