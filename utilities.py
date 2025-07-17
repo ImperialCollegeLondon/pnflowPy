@@ -4,6 +4,10 @@ import warnings
 from solver import Solver
 from functools import reduce
 from numba import njit, prange
+import os
+
+import utilities_cython as do
+
 
 class Computations():
     def __init__(self, obj):
@@ -46,11 +50,6 @@ def compute_gL_numba(P1array, P2array, tList, LP1, LP2, LT, g, nThroats):
     return gL
 
 
-
-def check_Trapping_ClusteringNew(self, arr, notdone, fluid, Pc, updateCluster=False,
-                                updateConnectivity=False, updatePcClustConToInlet=True):
-                                    
-    return check_Trapping_Clustering_numba()
     
 def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False,
                                 updateConnectivity=False, updatePcClustConToInlet=True):
@@ -58,44 +57,29 @@ def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False
     members = np.zeros(self.totElements, dtype=bool)
     arrDict = {}
     connectedCluster = []
-    TValid = self.TValid[notdone[self.TValid]]
-    TPValid = self.TPValid[notdone[self.TValid]]
-    mem = np.zeros(self.totElements, dtype=bool)
+    cond = notdone[self.TValid]
+    TValid = self.TValid[cond]
+    TPValid = self.TPValid[cond]
+    mem0 = np.zeros(self.totElements, dtype=bool)
     
     while arr.size:
         i += 1
         ii = arr[0]
-        done = np.zeros(self.totElements, dtype=bool)
-        done[ii] = True
-        notdone[ii] = False
-        trappedStatus, connStatus = True, False
-
-        doPore = (ii<=self.nPores)
-        while True:
-            if doPore:
-                ii_next = TValid[done[TPValid]]
-                doPore = False
-            else:
-                ii_next = TPValid[done[TValid]]
-                doPore = True
-
-            ii_next = ii_next[notdone[ii_next]]
-            if ii_next.size == 0:
-                break
-
-            done[ii_next] = True
-            notdone[ii_next] = False
         
-        TValid, TPValid = TValid[notdone[TValid]], TPValid[notdone[TValid]]
-        trappedStatus = not (self.toInlet[done].any() or self.toOutlet[done].any())
-        if self.toInBdr[done].any() and self.toOutBdr[done].any():
+        done, TValid, TPValid = check_Trapping_Clustering_numba(
+            ii, TValid, TPValid, notdone, self.nPores, self.totElements)
+        _done = np.flatnonzero(done)
+        trappedStatus = not (self.toInlet[_done].any() or self.toOutlet[_done].any())
+        if self.toInBdr[_done].any() and self.toOutBdr[_done].any():
             connStatus = True
             connectedCluster.append(i)
-            mem[done] = True
+            mem0[_done] = True
+        else:
+            connStatus = False
 
         arrDict[i] = {'members': done, 'connStatus': connStatus, 'trappedStatus': trappedStatus}
         arr = arr[notdone[arr]]
-        members[done] = True
+        members[_done] = True
 
     try:
         if fluid == 0:
@@ -103,25 +87,26 @@ def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False
         else:
             cluster_ID, cluster, trapped = self.clusterNW_ID, self.clusterNW, self.trappedNW
 
+        _mem0 = np.flatnonzero(mem0)
         if not updateCluster:
-            isConnected = mem.any()
+            isConnected = _mem0.any()
             cluster.connected[0] = isConnected
             cluster.clustConToExit[0] = isConnected
             cluster.trappedStatus[0] = not isConnected
-            ids = cluster_ID[mem][cluster_ID[mem] >= 0]
-            if ids.size>0 and not (ids==0).all():
-                mem1 = self.elementListS[mem][cluster_ID[mem] >= 0]
-                mem1 = mem1[ids != 0]
-                ids = ids[ids != 0]
+            clustID = cluster_ID[_mem0]
+            cond = (clustID != 0)
+            ids = clustID[cond]
+            if ids.any():
+                mem1 = _mem0[cond]
                 cluster_ID[mem1] = 0
                 cluster.members[:, mem1] = False
                 cluster.members[0][mem1] = True
                 trapped[mem1] = False
-                availClust = ids[~cluster.members[ids].any(axis=1)]
+                #availClust = ids[~cluster.members[ids].any(axis=1)]
+                availClust = ids[cluster.size[ids] == 0]
                 cluster.availableID.update(availClust)
         else:
-            members = self.elementListS[members]
-            cluster.clustering(members, arrDict, Pc, cluster_ID, trapped, 
+            cluster.clustering( np.flatnonzero(members), arrDict, Pc, cluster_ID, trapped, 
                                updatePcClustConToInlet)
 
     except AttributeError:
@@ -130,7 +115,44 @@ def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False
     if not updateConnectivity:
         return
     else:
-        return mem
+        return mem0
+    
+
+@njit(cache=True)
+def check_Trapping_Clustering_numba(ii, TValid, TPValid, notdone, nPores, totElements):
+    done = np.zeros(totElements, dtype=np.bool_)
+    done[ii] = True
+    notdone[ii] = False
+
+    filterNext = np.zeros(totElements, dtype=np.bool_)
+    filterNext[ii] = True
+    doPore = ii <= nPores
+
+    while True:
+        if doPore:
+            temp = np.flatnonzero(filterNext[TPValid])
+            ii_next = TValid[temp]
+            doPore = False
+        else:
+            temp = np.flatnonzero(filterNext[TValid])
+            ii_next = TPValid[temp]
+            doPore = True
+
+        filter_ii = notdone[ii_next]
+        ii_next = ii_next[filter_ii]
+        if ii_next.size == 0:
+                break
+
+        filterNext[filterNext] = False
+        filterNext[ii_next] = True
+        done[ii_next] = True
+        notdone[ii_next] = False
+
+    temp = np.flatnonzero(notdone[TValid])
+    TValid = TValid[temp]
+    TPValid = TPValid[temp]
+
+    return done, TValid, TPValid
     
 
 @njit(parallel=True, cache=True)
@@ -256,7 +278,8 @@ def __getValue__(self, arrr, gL):
 
 
 def Saturation(self, AreaWP, AreaSP):
-    return Saturation_numba(self.isinsideBox, self.totElements, self.totVoidVolume, AreaWP, AreaSP, self.volarray)
+    return Saturation_numba(
+        self.isinsideBox, self.totElements, self.totVoidVolume, AreaWP, AreaSP, self.volarray)
 
 
 @njit(parallel=True, cache=True)
@@ -645,7 +668,7 @@ def __finitCornerApex__(self, Pc):
     m_cornExists[arr] = (self.m_inited[arr] | (~trapped[arr])) & m_cornExists[arr]
     contactAng = self.thetaRecAng if self.is_oil_inj else self.thetaAdvAng
     apexDist = np.zeros_like(self.m_initedApexDist)
-    
+   
     if np.any(arrrT):
         arrT = np.flatnonzero(arrrT)
         _, apexDist[arrT,:3] = cornerApex(
@@ -693,35 +716,14 @@ def finitCornerApex_numba(arrr, m_cornExists, halfAng, Pc, m_inited, m_initOrMax
             m_inited[idx,j] = False
             m_initedApexDist[idx,j] = apexDist_ij
             
-            
-@njit(parallel=True, cache=True)
-def finitCornerApex_numbaOld(arr, cond, halfAng, Pc, m_inited, m_initOrMaxPcHist, 
-    m_initOrMinApexDistHist, advPc, recPc, apexDist, m_initedApexDist, conAng,
-    thetaRecAng, thetaAdvAng, sigma):
-    n, m = conAng.shape
-    for i in prange(n):
-        idx = arr[i]
-        Pc_i = Pc[0] if Pc.size==1 else Pc[i]
-        for j in prange(m):
-            if not cond[i,j]:
-                continue
-            halfAng_ij = halfAng[i,j]
-            sin_halfAng_ij = np.sin(halfAng_ij)
-            apexDist_ij = apexDist[i,j]
-            recPc[i,j] = sigma*np.cos((min(np.pi, thetaRecAng[idx])+halfAng_ij))/(
-                apexDist_ij*sin_halfAng_ij)
-            advPc[i,j] = sigma*np.cos((min(np.pi, thetaAdvAng[idx])+halfAng_ij))/(
-                apexDist_ij*sin_halfAng_ij)
-            if Pc_i > m_initOrMaxPcHist[i,j]:
-                m_initOrMinApexDistHist[i,j] = apexDist_ij
-                m_initOrMaxPcHist[i,j] = Pc_i
-            m_inited[i,j] = False
-            m_initedApexDist[i,j] = apexDist_ij
     
 
-def cornerApex(self, arrr, Pc, contactAng, m_cornExists, nCorners, accurat=False, overidetrapping=False):
+def cornerApex(self, arrr, Pc, contactAng, m_cornExists, nCorners, accurat=False,                  
+               overidetrapping=False):
     
     delta = 0.0 if accurat else self._delta
+    # print('Im in cornerApex!!!  ')
+    # from IPython import embed; embed()
     return corner_apex_numba(
         arrr, self.m_halfAngles, Pc, contactAng, m_cornExists,
         self.m_initOrMaxPcHist, self.m_initOrMinApexDistHist, self.m_advPc,
@@ -729,6 +731,15 @@ def cornerApex(self, arrr, Pc, contactAng, m_cornExists, nCorners, accurat=False
         self.clusterW.pc, self.clusterNW.pc, self.clusterW_ID, self.clusterNW_ID, 
         self.sigma, self.thetaAdvAng, self.thetaRecAng, 
         delta,  overidetrapping, self.MOLECULAR_LENGTH, nCorners)
+
+    # return do.corner_apex_cython(
+    #     arrr, self.m_halfAngles, Pc, m_cornExists,
+    #     self.m_initOrMaxPcHist, self.m_initOrMinApexDistHist, self.m_advPc,
+    #     self.m_recPc, self.m_initedApexDist, self.trappedW, self.trappedNW, 
+    #     self.clusterW.pc, self.clusterNW.pc, self.clusterW_ID.astype(np.int32), 
+    #     self.clusterNW_ID.astype(np.int32), 
+    #     self.sigma, self.thetaAdvAng, self.thetaRecAng, 
+    #     delta,  overidetrapping, self.MOLECULAR_LENGTH, nCorners)
 
 
 @njit(fastmath=True, cache=True)
@@ -866,10 +877,13 @@ def corner_apex_numba(
                     part = trappedPc * initedApexDist[idx, j] * np.sin(halfAng_i[j]) / sigma
                     part = min(0.999999, max(-0.999999, part))
                     conAng_ij = max(min(np.arccos(part) - halfAng_i[j], np.pi), 0.0)
+                    conAng[i, j] = conAng_ij
 
         for j in range(nCorners):
             halfAng_ij = halfAng_i[j]
             sinHalfAng_ij = np.sin(halfAng_ij)
+            if np.abs(sinHalfAng_ij) < 1e-10:
+                continue
             initedApexDist_ij = initedApexDist[idx, j]
 
             # cond0
@@ -932,8 +946,11 @@ def initCornerApex(self, arr, arrr, halfAng, m_cornExists, m_inited,
                     recPc, advPc, m_initedApexDist, trapped):
 
     cond =  (m_cornExists & (arrr&~trapped[arr]).reshape(-1,1))
+    # do.initCornerApex_cython(arr.astype(np.int32), cond, halfAng, m_inited, recPc, advPc,
+    #                         m_initedApexDist, self.thetaRecAng, self.thetaAdvAng, self.sigma)
+
     initCornerApex_numba(arr, cond, halfAng, m_inited, recPc, advPc, m_initedApexDist,
-                        self.thetaRecAng, self.thetaAdvAng, self.sigma)
+                         self.thetaRecAng, self.thetaAdvAng, self.sigma)
                                         
 
 def __initCornerApex__(self):
@@ -961,7 +978,7 @@ def initCornerApex_numba(arr, cond, halfAng, m_inited, recPc, advPc,
                 continue
             
             halfAng_ij = halfAng[i,j]
-            sin_halfAng_ij = np.sin(halfAng_ij)            
+            sin_halfAng_ij = np.sin(halfAng_ij)        
             m_inited[i,j] = True
             pc_ij = sigma*np.cos(min(np.pi, thetaRecAng[idx]+halfAng_ij))/(
                 m_initedApexDist[i,j]*sin_halfAng_ij)

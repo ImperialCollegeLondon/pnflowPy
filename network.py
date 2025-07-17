@@ -58,8 +58,8 @@ class Network(InputData):
         Lines3 = open(self.cwd + '/' + str(self.title) + "_node1.dat").readlines()
         node2 = np.loadtxt(self.cwd + '/' + str(self.title) + "_node2.dat")
 
-        self.poreList = np.arange(1, self.nPores+1)
-        self.throatList = np.arange(1, self.nThroats+1)
+        self.poreList = np.arange(1, self.nPores+1, dtype=np.int32)
+        self.throatList = np.arange(1, self.nThroats+1, dtype=np.int32)
         self.tList = self.throatList+self.nPores
         self.Area_ = self.yDim*self.zDim
         self.Lnetwork = self.xDim

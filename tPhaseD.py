@@ -160,6 +160,7 @@ def drainage(self):
     print('==========================================================\n\n')
 
     print(f'no of pops: {self.pop}, no of updates: {self.update}')
+    #from IPython import embed; embed()
     
     # import dill
     # MEMORY_DIR = f"./saved_simulation_{self.title}"

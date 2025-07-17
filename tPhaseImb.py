@@ -31,6 +31,8 @@ def initialize(self):
     #tuneContactAngles(self)
     self.contactAng, self.thetaRecAng, self.thetaAdvAng =\
         do.__wettabilityDistribution__(self)
+    #contactAng = np.loadtxt('/data4/Ademola/OstRipening/data/contact_angles_bentSepi_1.dat')
+    #self.contactAng, self.thetaRecAng, self.thetaAdvAng = contactAng.copy(), contactAng.copy(), contactAng.copy()
     self.cosThetaAdvAng = np.cos(self.thetaAdvAng)
     self.sinThetaAdvAng = np.sin(self.thetaAdvAng)
     self.cosThetaRecAng = np.cos(self.thetaRecAng)
@@ -53,6 +55,8 @@ def initialize(self):
     self._centerCond = self._condNWP.copy()
             
     self.specialPcD = np.zeros(self.totElements)
+    
+    
     
 
 def imbibition(self):
