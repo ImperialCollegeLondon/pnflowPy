@@ -116,7 +116,7 @@ class Network(InputData):
         self.y_array[[0, -1]] = self.yDim/2
         self.z_array = np.zeros(self.nPores+2)
         self.z_array[[0, -1]] = self.zDim/2
-        self.connNum_array = np.zeros(self.nPores+2, dtype='uint32')
+        self.connNum_array = np.zeros(self.nPores+2, dtype=np.intp)
         self.poreInletStat = np.zeros(self.nPores+2, dtype=np.bool_)
         self.poreOutletStat = np.zeros(self.nPores+2, dtype=np.bool_)
         [*map(getDataP, Lines3[1:])]
@@ -150,6 +150,7 @@ class Network(InputData):
         self.isSquare = (self.Garray > self.bndG1) & (self.Garray < self.bndG2)
         self.elemSquare = self.elementLists[self.isSquare[1:-1]]
         self.isPolygon = (self.Garray <= self.bndG2)
+        self.isPore = (self.elementListS <= self.nPores)
         
         # place-holder arrays
         self.m_halfAngles = np.zeros([self.totElements,4], dtype=np.float64)
@@ -187,15 +188,19 @@ class Network(InputData):
         self.connectivity_graph = np.array(self.connectivity_graph, dtype=object)
         self.connectivity_graph[:self.nPores+1] = self.PTConData
         self.connectivity_graph[-1] = np.array([], dtype='int32')
+        self.connectivity_graph_flat = np.concatenate(self.connectivity_graph).astype(np.int32)
+        self.cg_row_lengths = np.array([len(row) for row in self.connectivity_graph], dtype=np.intp)
+        self.cg_offsets = np.zeros(self.totElements + 1, dtype=np.int32)  
+        self.cg_offsets[1:] = np.cumsum(self.cg_row_lengths)
 
         self.TPCond = (self.TPConnections>0) # location of valid pores connected to each throats
-        TValid = np.dstack((self.tList, self.tList))[0]
+        TValid = np.column_stack((self.tList, self.tList))
         self.TValid = TValid[self.TPCond[1:]] # valid throats (Oren)
+        self.tValid = self.TValid-self.nPores
         self.TPValid = self.TPConnections[self.TPCond]
        
         self.PcD = np.zeros(self.totElements)
         self.PcI = np.zeros(self.totElements)
-        
         
 
     def __isinsideBox__(self):

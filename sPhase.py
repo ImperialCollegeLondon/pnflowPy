@@ -2,6 +2,7 @@ from time import time
 import numpy as np
 from utilities import Computations
 import utilities as do
+from cluster import Cluster
 
 
 class SinglePhase:
@@ -36,7 +37,6 @@ def singlephase(self):
     print('---------------------------Single Phase---------------------------')
     Computations(self)
     gLSP = do.computegL(self, self.gSP)
-    #from IPython import embed; embed()
     
     arrr = np.zeros(self.totElements, dtype='bool')    
     arrr[self.P1array[(gLSP > 0.0)]] = True
@@ -44,9 +44,17 @@ def singlephase(self):
     arrr[self.tList[(gLSP > 0.0)]] = True
     arrr = (arrr & self.connected)
 
-    self.connW = do.check_Trapping_Clustering(
-        self, self.elementListS[arrr], arrr.copy(), 0, 0, False, True)
-    conn = self.connW & self.isinsideBox
+    self.clusterW_ID = -5*np.ones(self.totElements, dtype=np.int32)
+    self.trappedW = np.zeros(self.totElements, dtype='bool')
+    self.fluid = np.zeros(self.totElements, dtype=np.int32)
+    self.fluid[-1] = 1   # already filled
+    self.hasWFluid = (self.fluid==0)|self.isPolygon
+    self.hasWFluid[[-1,0]] = False
+    self.connW = np.zeros(self.totElements, dtype='bool')
+    
+    self.clusterW = Cluster(self, 0)
+    self.clusterW.doClustering(np.flatnonzero(arrr), arrr, 0, True, True, True)
+    conn = self.clusterW.conn & self.isinsideBox
     AmatrixW, CmatrixW = do.__getValue__(self, conn, gLSP)
     presSP = np.zeros(self.nPores+2)
     presSP[conn[self.poreListS]] = do.matrixSolver(AmatrixW, CmatrixW)

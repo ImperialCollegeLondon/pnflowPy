@@ -37,7 +37,7 @@ def initialize(self):
     self.sinThetaAdvAng = np.sin(self.thetaAdvAng)
     self.cosThetaRecAng = np.cos(self.thetaRecAng)
     self.sinThetaRecAng = np.sin(self.thetaRecAng)
-    
+
     self.is_oil_inj = False
     do.__initCornerApex__(self)
     __computePistonPc__(self)
@@ -55,8 +55,6 @@ def initialize(self):
     self._centerCond = self._condNWP.copy()
             
     self.specialPcD = np.zeros(self.totElements)
-    
-    
     
 
 def imbibition(self):
@@ -141,10 +139,10 @@ def imbibition(self):
     print(f'no of pops: {self.pop}, no of updates: {self.update}')
     
     # import dill
-    # MEMORY_DIR = f"./saved_simulation_{self.title}"
+    # MEMORY_DIR = f"./saved_simulation_{self.title}_20072025"
     # os.makedirs(MEMORY_DIR, exist_ok=True)
-    # with open(os.path.join(MEMORY_DIR, f"imbibition_{self.capPresMin}.pkl"),"wb") as f:
-        # dill.dump(self, f)
+    # with open(os.path.join(MEMORY_DIR, f"imbibition_{int(self.capPresMin)}.pkl"),"wb") as f:
+    #     dill.dump(self, f)
     from IPython import embed; embed()
 
 
@@ -160,7 +158,7 @@ def __PImbibition__(self):
         while (self.invInsideBox < self.fillTarget) and (
             len(self.ElemToFill) != 0) and (
                 self.PcI[self.ElemToFill[0]] >= self.PcTarget):
-            if not self.fillTillNWDisconnected or self.clusterNW.connected[0]:
+            if not self.fillTillNWDisconnected or self.connNW.any():
                 popUpdateWaterInj(self)
             else:
                 self.filling = False
@@ -195,97 +193,97 @@ def __PImbibition__(self):
     self.resultI_str = do.writeResult(self, self.resultI_str, self.capPresMin)
     
 
-def fillWithWaterOld(self, k):
-    self.fluid[k] = 0
-    if self.hasWFluid[k]:
-        return
+# def fillWithWaterOld(self, k):
+#     self.fluid[k] = 0
+#     if self.hasWFluid[k]:
+#         return
     
-    neigh = self.elem[k].neighbours[self.elem[k].neighbours>0]
-    self.hasWFluid[k] = True
-    neighW = neigh[self.hasWFluid[neigh]]
-    ids = self.clusterW_ID[neighW]
-    if ids.size>0:
-        ii = ids.min()
+#     neigh = self.elem[k].neighbours[self.elem[k].neighbours>0]
+#     self.hasWFluid[k] = True
+#     neighW = neigh[self.hasWFluid[neigh]]
+#     ids = self.clusterW_ID[neighW]
+#     if ids.size>0:
+#         ii = ids.min()
 
-        ''' newly filled takes the properties of already filled neighbour '''
-        self.clusterW_ID[k] = ii
-        self.clusterW.members[ii,k] = True
-        self.connW[k] = self.clusterW[ii].connected
-        ids = ids[ids!=ii]             
-        if ids.size>0:
-            ''' need to coalesce '''
-            mem = self.elementListS[self.clusterW.members[ids].any(axis=0)]
-            self.clusterW.members[ii][mem] = True
-            self.clusterW.members[ids] = False
-            self.clusterW.availableID.update(ids)
-            self.clusterW_ID[mem] = ii
-    else:
-        do.check_Trapping_Clustering(
-            self, np.array([k]), self.hasWFluid.copy(), 0, self.capPresMin, 
-            True, False, True)
-        ii = self.clusterW_ID[k]
-        self.connW[k] = self.clusterW[ii].connected
+#         ''' newly filled takes the properties of already filled neighbour '''
+#         self.clusterW_ID[k] = ii
+#         self.clusterW.members[ii,k] = True
+#         self.connW[k] = self.clusterW[ii].connected
+#         ids = ids[ids!=ii]             
+#         if ids.size>0:
+#             ''' need to coalesce '''
+#             mem = self.elementListS[self.clusterW.members[ids].any(axis=0)]
+#             self.clusterW.members[ii][mem] = True
+#             self.clusterW.members[ids] = False
+#             self.clusterW.availableID.update(ids)
+#             self.clusterW_ID[mem] = ii
+#     else:
+#         do.check_Trapping_Clustering(
+#             self, np.array([k]), self.hasWFluid.copy(), 0, self.capPresMin, 
+#             True, False, True)
+#         ii = self.clusterW_ID[k]
+#         self.connW[k] = self.clusterW[ii].connected
         
-@njit(cache=True)
-def fillWithWater_numba(k, fluidArray, hasWFluid, neigh, clusterW_ID, 
-    clusterW_members, connW, clustConnStatus):
-    fluidArray[k] = 0
-    ids = np.empty(0, dtype=np.int64)
-    if hasWFluid[k]: 
-        return ids
-    neigh = neigh[neigh>0]
-    hasWFluid[k] = True
-    neighW = neigh[hasWFluid[neigh]]
-    ids = clusterW_ID[neighW]
+# @njit(cache=True)
+# def fillWithWater_numba(k, fluidArray, hasWFluid, neigh, clusterW_ID, 
+#     clusterW_members, connW, clustConnStatus):
+#     fluidArray[k] = 0
+#     ids = np.empty(0, dtype=np.int64)
+#     if hasWFluid[k]: 
+#         return ids
+#     neigh = neigh[neigh>0]
+#     hasWFluid[k] = True
+#     neighW = neigh[hasWFluid[neigh]]
+#     ids = clusterW_ID[neighW]
     
-    if ids.size>0:
-        ii = min(ids)
-        ''' newly filled takes the properties of already filled neighbour '''
-        clusterW_ID[k] = ii
-        clusterW_members[ii, k] = True
-        connW[k] = clustConnStatus[ii]
-        ids = ids[ids!=ii]
-        if ids.size>0:
-            ''' need to coalesce '''
-            _, mem = np.nonzero(clusterW_members[ids])
-            for idx in mem:
-                clusterW_members[ii, idx] = True
-            clusterW_members[ids] = False
-            clusterW_ID[mem] = ii
+#     if ids.size>0:
+#         ii = min(ids)
+#         ''' newly filled takes the properties of already filled neighbour '''
+#         clusterW_ID[k] = ii
+#         clusterW_members[ii, k] = True
+#         connW[k] = clustConnStatus[ii]
+#         ids = ids[ids!=ii]
+#         if ids.size>0:
+#             ''' need to coalesce '''
+#             _, mem = np.nonzero(clusterW_members[ids])
+#             for idx in mem:
+#                 clusterW_members[ii, idx] = True
+#             clusterW_members[ids] = False
+#             clusterW_ID[mem] = ii
         
-    return ids
-        
-
-def fillWithWater(self, k):
-    neigh = np.array(self.connectivity_graph[k])
-    ids = fillWithWater_numba(k, self.fluid, self.hasWFluid, neigh, 
-        self.clusterW_ID, self.clusterW.members, self.connW, self.clusterW.connected)
-    if ids.size>0:
-        self.clusterW.availableID.update(ids)
-    else:
-        do.check_Trapping_Clustering(
-            self, np.array([k]), self.hasWFluid.copy(), 0, self.capPresMin, 
-            True, False, True)
-        ii = self.clusterW_ID[k]
-        self.connW[k] = self.clusterW[ii].connected
+#     return ids
         
 
-def unfillWithOil(self, k, Pc, updateCluster=False, updateConnectivity=False, 
-                    updatePcClustConToInlet=True, updatePc=True, adjustPc=False):
+# def fillWithWater(self, k):
+#     neigh = np.array(self.connectivity_graph[k])
+#     ids = fillWithWater_numba(k, self.fluid, self.hasWFluid, neigh, 
+#         self.clusterW_ID, self.clusterW.members, self.connW, self.clusterW.connected)
+#     if ids.size>0:
+#         self.clusterW.availableID.update(ids)
+#     else:
+#         do.check_Trapping_Clustering(
+#             self, np.array([k]), self.hasWFluid.copy(), 0, self.capPresMin, 
+#             True, False, True)
+#         ii = self.clusterW_ID[k]
+#         self.connW[k] = self.clusterW[ii].connected
+        
+
+# def unfillWithOil(self, k, Pc, updateCluster=False, updateConnectivity=False, 
+#                     updatePcClustConToInlet=True, updatePc=True, adjustPc=False):
     
-    self.hasNWFluid[k] = False
-    kk = self.clusterNW_ID[k]
-    self.clusterNW_ID[k] = -5
-    self.clusterNW.members[kk,k] = False
-    neigh = self.elem[k].neighbours[self.elem[k].neighbours>0]
-    neigh = neigh[self.hasNWFluid[neigh]]
-    if neigh.any():
-        do.check_Trapping_Clustering(
-            self, neigh.copy(), self.hasNWFluid.copy(), 1, Pc, 
-            updateCluster, updateConnectivity, updatePcClustConToInlet)
-        if updatePc:
-            neighb = neigh[~self.trappedNW[neigh]]
-            __computePc__(self, self.capPresMin, neighb)
+#     self.hasNWFluid[k] = False
+#     kk = self.clusterNW_ID[k]
+#     self.clusterNW_ID[k] = -5
+#     self.clusterNW.members[kk,k] = False
+#     neigh = self.elem[k].neighbours[self.elem[k].neighbours>0]
+#     neigh = neigh[self.hasNWFluid[neigh]]
+#     if neigh.any():
+#         do.check_Trapping_Clustering(
+#             self, neigh.copy(), self.hasNWFluid.copy(), 1, Pc, 
+#             updateCluster, updateConnectivity, updatePcClustConToInlet)
+#         if updatePc:
+#             neighb = neigh[~self.trappedNW[neigh]]
+#             __computePc__(self, self.capPresMin, neighb)
 
 
 def popUpdateWaterInj(self):
@@ -293,9 +291,15 @@ def popUpdateWaterInj(self):
     k = self.ElemToFill.pop(0)
     capPres = self.PcI[k]
     self.capPresMin = np.min([self.capPresMin, capPres])
+
     if not self.trappedNW[k]:
-        fillWithWater(self, k)
-        unfillWithOil(self, k, self.capPresMin, True)
+        self.clusterW.fill_with_phase(k, self.capPresMin)
+        self.clusterNW.unfill_phase(k, self.capPresMin)
+        neigh = self.elem[k].neighbours[self.elem[k].neighbours>0]
+        neigh = neigh[self.hasNWFluid[neigh] & ~self.trappedNW[neigh]]
+        if neigh.size>0:
+            __computePc__(self, self.capPresMin, neigh)
+        
         self.specialPcD[k] = self.capPresMin
         self.fillmech[k] = 1*(self.PistonPcAdv[k]==capPres)+2*(
             self.porebodyPc[k]==capPres)+3*(self.snapoffPc[k]==capPres)
@@ -339,9 +343,6 @@ def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True, overrideTrap
         self._cornArea, self._cornCond, self._centerArea, self._centerCond,
         self.gwSPhase, self.gnwSPhase, updateArea, overrideTrapping)
     
-    #print('1111111111111111111222')
-    #from IPython import embed; embed()
-   
 
 @njit(parallel=True, cache=True)
 def check_update_corner_area_cond(arrr, cornArea, cornCond, maxCornerArea, 
@@ -762,9 +763,6 @@ def tune_func1(self, arrr, contactAng, thetaRecAng, thetaAdvAng):
     self.sinThetaRecAng = np.sin(self.thetaRecAng)
     do.__initCornerApex__(self)
     __CondTPImbibition__(self, arrr)
-    
-    
-    
     
     
 def __writeHeadersI__(self):

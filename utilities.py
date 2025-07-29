@@ -6,7 +6,8 @@ from functools import reduce
 from numba import njit, prange
 import os
 
-import utilities_cython as do
+#import utilities_cython as do
+#from Cluster import Cluster
 
 
 class Computations():
@@ -19,6 +20,9 @@ class Computations():
         obj.toOutlet[obj.conTToOut] = True
         obj.toOutBdr = obj.toOutlet.copy()
         obj.toOutBdr[obj.conTToOutletBdr] = True
+        self.done = np.zeros(obj.totElements, dtype=np.bool_)
+        self.filterNext = np.zeros(obj.totElements, dtype=np.bool_)
+
 
 
 def matrixSolver(Amatrix, Cmatrix) -> np.array:
@@ -51,108 +55,108 @@ def compute_gL_numba(P1array, P2array, tList, LP1, LP2, LT, g, nThroats):
 
 
     
-def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False,
-                                updateConnectivity=False, updatePcClustConToInlet=True):
-    i = 0
-    members = np.zeros(self.totElements, dtype=bool)
-    arrDict = {}
-    connectedCluster = []
-    cond = notdone[self.TValid]
-    TValid = self.TValid[cond]
-    TPValid = self.TPValid[cond]
-    mem0 = np.zeros(self.totElements, dtype=bool)
+# def check_Trapping_Clustering(self, arr, notdone, fluid, Pc, updateCluster=False,
+#                                 updateConnectivity=False, updatePcClustConToInlet=True):
+#     i = 0
+#     members = np.zeros(self.totElements, dtype=bool)
+#     arrDict = {}
+#     cond = notdone[self.TValid]
+#     TValid = self.TValid[cond]
+#     TPValid = self.TPValid[cond]
+#     mem0 = np.zeros(self.totElements, dtype=bool)
     
-    while arr.size:
-        i += 1
-        ii = arr[0]
+#     while arr.size:
+#         i += 1
+#         ii = arr[0]
         
-        done, TValid, TPValid = check_Trapping_Clustering_numba(
-            ii, TValid, TPValid, notdone, self.nPores, self.totElements)
-        _done = np.flatnonzero(done)
-        trappedStatus = not (self.toInlet[_done].any() or self.toOutlet[_done].any())
-        if self.toInBdr[_done].any() and self.toOutBdr[_done].any():
-            connStatus = True
-            connectedCluster.append(i)
-            mem0[_done] = True
-        else:
-            connStatus = False
+#         done, TValid, TPValid = check_Trapping_Clustering_numba(
+#             ii, TValid, TPValid, notdone, self.nPores, self.totElements)
+#         _done = np.flatnonzero(done)
+#         trappedStatus = not (self.toInlet[_done].any() or self.toOutlet[_done].any())
+#         if self.toInBdr[_done].any() and self.toOutBdr[_done].any():
+#             connStatus = True
+#             mem0[_done] = True
+#         else:
+#             connStatus = False
 
-        arrDict[i] = {'members': done, 'connStatus': connStatus, 'trappedStatus': trappedStatus}
-        arr = arr[notdone[arr]]
-        members[_done] = True
+#         #from IPython import embed; embed()
+#         arrDict[i] = {'members': done, 'connStatus': connStatus, 'trappedStatus': trappedStatus}
+#         arr = arr[notdone[arr]]
+#         members[_done] = True
 
-    try:
-        if fluid == 0:
-            cluster_ID, cluster, trapped = self.clusterW_ID, self.clusterW, self.trappedW
-        else:
-            cluster_ID, cluster, trapped = self.clusterNW_ID, self.clusterNW, self.trappedNW
+#     try:
+#         if fluid == 0:
+#             cluster_ID, cluster, trapped = self.clusterW_ID, self.clusterW, self.trappedW
+#         else:
+#             cluster_ID, cluster, trapped = self.clusterNW_ID, self.clusterNW, self.trappedNW
+        
+#         if not updateCluster:
+#             isConnected = cluster[0].members.any()            
+#             cluster.connected[0] = isConnected
+#             cluster.clustConToExit[0] = isConnected
+#             cluster.trappedStatus[0] = not isConnected
 
-        _mem0 = np.flatnonzero(mem0)
-        if not updateCluster:
-            isConnected = _mem0.any()
-            cluster.connected[0] = isConnected
-            cluster.clustConToExit[0] = isConnected
-            cluster.trappedStatus[0] = not isConnected
-            clustID = cluster_ID[_mem0]
-            cond = (clustID != 0)
-            ids = clustID[cond]
-            if ids.any():
-                mem1 = _mem0[cond]
-                cluster_ID[mem1] = 0
-                cluster.members[:, mem1] = False
-                cluster.members[0][mem1] = True
-                trapped[mem1] = False
-                #availClust = ids[~cluster.members[ids].any(axis=1)]
-                availClust = ids[cluster.size[ids] == 0]
-                cluster.availableID.update(availClust)
-        else:
-            cluster.clustering( np.flatnonzero(members), arrDict, Pc, cluster_ID, trapped, 
-                               updatePcClustConToInlet)
+#             _mem0 = np.flatnonzero(mem0)
+#             clustID = cluster_ID[_mem0]
+#             cond = (clustID != 0)
+#             ids = clustID[cond]
+#             if ids.any():
+#                 mem1 = _mem0[cond]
+#                 cluster_ID[mem1] = 0
+#                 cluster.members[:, mem1] = False
+#                 cluster.members[0][mem1] = True
+#                 trapped[mem1] = False
+#                 availClust = ids[cluster.size[ids] == 0]
+#                 cluster.availableID.update(availClust)
+#         else:
+#             cluster.clustering(np.flatnonzero(members), arrDict, Pc, cluster_ID, trapped, 
+#                                updatePcClustConToInlet)
 
-    except AttributeError:
-        pass
+#     except AttributeError:
+#         pass
 
-    if not updateConnectivity:
-        return
-    else:
-        return mem0
+#     if not updateConnectivity:
+#         return
+#     else:
+#         return mem0
     
 
-@njit(cache=True)
-def check_Trapping_Clustering_numba(ii, TValid, TPValid, notdone, nPores, totElements):
-    done = np.zeros(totElements, dtype=np.bool_)
-    done[ii] = True
-    notdone[ii] = False
+# @njit(cache=True)
+# def check_Trapping_Clustering_numba(ii, TValid, TPValid, notdone, nPores, totElements):
+#     done = np.zeros(totElements, dtype=np.bool_)
+#     done[ii] = True
+#     notdone[ii] = False
 
-    filterNext = np.zeros(totElements, dtype=np.bool_)
-    filterNext[ii] = True
-    doPore = ii <= nPores
+#     filterNext = np.zeros(totElements, dtype=np.bool_)
+#     filterNext[ii] = True
+#     doPore = ii <= nPores
 
-    while True:
-        if doPore:
-            temp = np.flatnonzero(filterNext[TPValid])
-            ii_next = TValid[temp]
-            doPore = False
-        else:
-            temp = np.flatnonzero(filterNext[TValid])
-            ii_next = TPValid[temp]
-            doPore = True
+#     while True:
+#         if doPore:
+#             temp = np.flatnonzero(filterNext[TPValid])
+#             ii_next = TValid[temp]
+#             doPore = False
+#         else:
+#             temp = np.flatnonzero(filterNext[TValid])
+#             ii_next = TPValid[temp]
+#             doPore = True
 
-        filter_ii = notdone[ii_next]
-        ii_next = ii_next[filter_ii]
-        if ii_next.size == 0:
-                break
+#         filter_ii = notdone[ii_next]
+#         ii_next = ii_next[filter_ii]
+#         if ii_next.size == 0:
+#             break
 
-        filterNext[filterNext] = False
-        filterNext[ii_next] = True
-        done[ii_next] = True
-        notdone[ii_next] = False
+#         filterNext[filterNext] = False
+#         filterNext[ii_next] = True
+#         done[ii_next] = True
+#         notdone[ii_next] = False
 
-    temp = np.flatnonzero(notdone[TValid])
-    TValid = TValid[temp]
-    TPValid = TPValid[temp]
+#     temp = np.flatnonzero(notdone[TValid])
+#     TValid = TValid[temp]
+#     TPValid = TPValid[temp]
 
-    return done, TValid, TPValid
+#     return done, TValid, TPValid
+
     
 
 @njit(parallel=True, cache=True)
@@ -291,32 +295,83 @@ def Saturation_numba(isinsideBox, totElements, totVoidVolume, AreaWP, AreaSP, vo
     return vol/totVoidVolume
         
         
-def computeFlowrate(self, gL, fluid, Pc, vector=False):
-    arrr, arr = computeFlowrate_numba_1(
-        gL, self.totElements, self.P1array, self.P2array, 
-        self.tList, self.conTToIn, self.connected)
+# def computeFlowrate(self, gL, fluid, Pc, vector=False):
+#     #from IPython import embed; embed()
+#     # arrr, arr = computeFlowrate_numba_1(
+#     #     gL, self.totElements, self.P1array, self.P2array, 
+#     #     self.tList, self.conTToIn, self.connected)
+    
+#     arrr, arr = computeFlowrate_numba_1(
+#         gL, self.nPores, self.totElements, self.tList, self.conTToIn, self.connected,
+#         self.connectivity_graph_flat, self.cg_offsets)
+    
+#     #if fluid==0: cluster = self.clusterW
+#     #else: cluster = self.clusterNW
+    
    
-    conn = check_Trapping_Clustering(
-        self, arr, arrr, fluid, Pc, updateConnectivity=True)
+#     if arr.size > 0:
+#         empty_array = False
+#         if fluid == 0:
+#             self.clusterW.doClustering(arr, arrr, Pc, False, True, True)
+#             #self.clusterW.check_Trapping_Clustering(arr, arrr, Pc, False, True, True)
+#             conn = self.connW.copy()
+#         else:
+#             self.clusterNW.doClustering(arr, arrr, Pc, False, True, True)
+#             #self.clusterNW.check_Trapping_Clustering(arr, arrr, Pc, False, True, True)
+#             conn = self.connNW.copy()
+#         # else: self.connNW = conn
+#         mList, arrT, c, indP = computeFlowrate_numba_2(
+#             conn, self.nPores, self.poreList, self.tList, self.totElements, self.isinsideBox)
         
-    if fluid == 0: self.connW = conn
-    else: self.connNW = conn
-    mList, arrT, c, indP = computeFlowrate_numba_2(
-        conn, self.nPores, self.poreList, self.tList, self.totElements, self.isinsideBox)
+#         if conn.any():
+#             row, col, data, Cmatrix = build_Amatrix_data(
+#                 arrT, self.P1array, self.P2array,
+#                 self.isOnInletBdr, self.isOnOutletBdr, gL,
+#                 mList)       
+        
+#             Amatrix = csr_matrix((data, (row, col)), shape=(c, c), dtype=np.float64)
+#             pres = np.zeros(self.nPores+2)
+#             pres[indP] = matrixSolver(Amatrix, Cmatrix)
+#             qout, qp, direction = compute_qp_numba(
+#                 self.P1array, self.P2array, self.tList, gL, self.nThroats, pres, self.poreList, c, conn, self.isOnInletBdr, vector, self.is_conTToInletBdr.copy(), 
+#                 self.is_conTToOutletBdr.copy())
+#         else:
+#             empty_array = True
+
+#     else:
+#         empty_array = True
+
+#     if empty_array:
+#         qout, qp = 0.0, np.zeros(self.nThroats)
+#         direction = np.ones(self.nThroats, dtype=np.bool_)
+    
+#     if not vector:
+#         return qout
+#     else:
+#        return qp, direction
+    
+
+def computeFlowrate(self, gL, fluid, Pc, vector=False):
+
+    if fluid == 0:
+        mList, arrT, c, indP = self.clusterW.computeFlowrate(gL)
+        conn = self.connW.copy()
+    else:
+        mList, arrT, c, indP = self.clusterNW.computeFlowrate(gL)
+        conn = self.connNW.copy()
 
     if conn.any():
         row, col, data, Cmatrix = build_Amatrix_data(
             arrT, self.P1array, self.P2array,
             self.isOnInletBdr, self.isOnOutletBdr, gL,
             mList)       
-       
+    
         Amatrix = csr_matrix((data, (row, col)), shape=(c, c), dtype=np.float64)
         pres = np.zeros(self.nPores+2)
         pres[indP] = matrixSolver(Amatrix, Cmatrix)
         qout, qp, direction = compute_qp_numba(
-            self.P1array, self.P2array, self.tList, gL, self.nThroats, pres, self.poreList, c, conn,
-            self.isOnInletBdr, vector, self.is_conTToInletBdr.copy(), self.is_conTToOutletBdr.copy())
-
+            self.P1array, self.P2array, self.tList, gL, self.nThroats, pres, self.poreList, c, conn, self.isOnInletBdr, vector, self.is_conTToInletBdr.copy(), 
+            self.is_conTToOutletBdr.copy())
     else:
         qout, qp = 0.0, np.zeros(self.nThroats)
         direction = np.ones(self.nThroats, dtype=np.bool_)
@@ -325,58 +380,84 @@ def computeFlowrate(self, gL, fluid, Pc, vector=False):
         return qout
     else:
         return qp, direction
-        
     
-@njit(parallel=True, cache=True)
-def computeFlowrate_numba_1(gL, totElements, P1array, P2array, tList, conTToIn, connected):
-        
-    arrr = np.zeros(totElements, dtype='bool')
-    
-    active = (gL>0.0)
-    arrP1 = P1array[active]
-    arrP2 = P2array[active]
-    arrT = tList[active]
-    
-    mask_P1 = connected[arrP1]
-    mask_P2 = connected[arrP2]
-    mask_T = connected[arrT]
-    
-    arrP1_con = arrP1[mask_P1]
-    arrP2_con = arrP2[mask_P2]
-    arrT_con = arrT[mask_T]
-    
-    for i in prange(arrP1_con.size):
-        P1 = arrP1_con[i]
-        arrr[P1] = True
-    for i in prange(arrP2_con.size):
-        P2 = arrP2_con[i]
-        arrr[P2] = True
-    for i in prange(arrT_con.size):
-        T = arrT_con[i]
-        arrr[T] = True
-            
-    mask_TToIn = arrr[conTToIn]
-    arrTToIn = conTToIn[mask_TToIn]
 
-    return arrr, arrTToIn
+
+
+        
     
+# @njit(cache=True)
+# def computeFlowrate_numba_11(gL, totElements, P1array, P2array, tList, conTToIn, connected):
+        
+#     arrr = np.zeros(totElements, dtype='bool')
     
-@njit(parallel=True, cache=True)
-def computeFlowrate_numba_2(arrr, nPores, poreList, tList, totElements, isinsideBox):
-    mList = -np.ones(nPores+2, dtype=np.int32)
-    for i in prange(totElements):
-        if not arrr[i]:
-            continue
-        if not isinsideBox[i] or i < 1:
-            arrr[i] = False
-            continue
+#     active = (gL>0.0)
+#     arrP1 = P1array[active]
+#     arrP2 = P2array[active]
+#     arrT = tList[active]
     
-    indP = np.flatnonzero(arrr[poreList])+1
-    c = indP.size
-    mList[indP] = np.arange(c)
-    arrT = np.flatnonzero(arrr[tList])+1
+#     mask_P1 = connected[arrP1]
+#     mask_P2 = connected[arrP2]
+#     mask_T = connected[arrT]
+    
+#     # arrP1_con = arrP1[mask_P1]
+#     # arrP2_con = arrP2[mask_P2]
+#     # arrT_con = arrT[mask_T]
+
+#     arrr[arrP1[mask_P1]] = True
+#     arrr[arrP2[mask_P2]] = True
+#     arrr[arrT[mask_T]] = True
+#     #for i in prange(tList.size):
+
+
+    
+#     # for i in prange(arrP1_con.size):
+#     #     P1 = arrP1_con[i]
+#     #     arrr[P1] = True
+#     # for i in prange(arrP2_con.size):
+#     #     P2 = arrP2_con[i]
+#     #     arrr[P2] = True
+#     # for i in prange(arrT_con.size):
+#     #     T = arrT_con[i]
+#     #     arrr[T] = True
             
-    return mList, arrT, c, indP
+#     mask_TToIn = arrr[conTToIn]
+#     arrTToIn = conTToIn[mask_TToIn]
+
+#     return arrr, arrTToIn
+
+
+# @njit(parallel=True, cache=True)
+# def computeFlowrate_numba_1(gL, nPores, totElements, tList, conTToIn, connected,
+#                             connectivity_graph, cg_offsets):
+#     arrr = np.zeros(totElements, dtype='bool')
+#     arrr[tList] = gL>0.0
+#     for i in prange(1, nPores+1):
+#         if not connected[i]: continue
+#         if arrr[connectivity_graph[cg_offsets[i]:cg_offsets[i+1]]].any():
+#             arrr[i] = True
+
+#     arrTToIn = conTToIn[arrr[conTToIn]]
+
+#     return arrr, arrTToIn
+    
+    
+# @njit(parallel=True, cache=True)
+# def computeFlowrate_numba_2(arrr, nPores, poreList, tList, totElements, isinsideBox):
+#     mList = -np.ones(nPores+2, dtype=np.int32)
+#     for i in prange(totElements):
+#         if arrr[i] and (~isinsideBox[i] or i < 1):
+#             arrr[i] = False
+    
+#     #ind = np.flatnonzero(arrr)+1
+#     #indP = ind[(ind<=nPores)]
+#     indP = np.flatnonzero(arrr[poreList])+1
+#     c = indP.size
+#     mList[indP] = np.arange(c)
+#     arrT = np.flatnonzero(arrr[tList])+1
+#     #arrT = ind[ind>nPores]
+            
+#     return mList, arrT, c, indP
             
             
 @njit(parallel=True, cache=True)
@@ -722,8 +803,6 @@ def cornerApex(self, arrr, Pc, contactAng, m_cornExists, nCorners, accurat=False
                overidetrapping=False):
     
     delta = 0.0 if accurat else self._delta
-    # print('Im in cornerApex!!!  ')
-    # from IPython import embed; embed()
     return corner_apex_numba(
         arrr, self.m_halfAngles, Pc, contactAng, m_cornExists,
         self.m_initOrMaxPcHist, self.m_initOrMinApexDistHist, self.m_advPc,
@@ -732,16 +811,7 @@ def cornerApex(self, arrr, Pc, contactAng, m_cornExists, nCorners, accurat=False
         self.sigma, self.thetaAdvAng, self.thetaRecAng, 
         delta,  overidetrapping, self.MOLECULAR_LENGTH, nCorners)
 
-    # return do.corner_apex_cython(
-    #     arrr, self.m_halfAngles, Pc, m_cornExists,
-    #     self.m_initOrMaxPcHist, self.m_initOrMinApexDistHist, self.m_advPc,
-    #     self.m_recPc, self.m_initedApexDist, self.trappedW, self.trappedNW, 
-    #     self.clusterW.pc, self.clusterNW.pc, self.clusterW_ID.astype(np.int32), 
-    #     self.clusterNW_ID.astype(np.int32), 
-    #     self.sigma, self.thetaAdvAng, self.thetaRecAng, 
-    #     delta,  overidetrapping, self.MOLECULAR_LENGTH, nCorners)
-
-
+   
 @njit(fastmath=True, cache=True)
 def corner_apex_1D_numba(
     arrr, halfAng, Pc, _conAng, m_cornExists, m_initOrMaxPcHist,
@@ -946,9 +1016,6 @@ def initCornerApex(self, arr, arrr, halfAng, m_cornExists, m_inited,
                     recPc, advPc, m_initedApexDist, trapped):
 
     cond =  (m_cornExists & (arrr&~trapped[arr]).reshape(-1,1))
-    # do.initCornerApex_cython(arr.astype(np.int32), cond, halfAng, m_inited, recPc, advPc,
-    #                         m_initedApexDist, self.thetaRecAng, self.thetaAdvAng, self.sigma)
-
     initCornerApex_numba(arr, cond, halfAng, m_inited, recPc, advPc, m_initedApexDist,
                          self.thetaRecAng, self.thetaAdvAng, self.sigma)
                                         

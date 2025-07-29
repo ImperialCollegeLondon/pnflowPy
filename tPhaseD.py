@@ -7,7 +7,8 @@ import pandas as pd
 from sortedcontainers import SortedList
 from functools import partial
 
-from clustering import Cluster
+from cluster import Cluster
+#from clustering import Cluster
 import utilities as do
 
 
@@ -17,14 +18,10 @@ class TwoPhaseDrainage:
         obj.writeTrappedData = writeTrappedData       
 
 def initialize(self):
-    self.fluid = np.zeros(self.totElements, dtype='int')
-    self.fluid[-1] = 1   # already filled
-    self.hasWFluid = (self.fluid==0)|self.isPolygon
-    self.hasWFluid[[-1,0]] = False
     self.hasNWFluid = (self.fluid==1)
     self.hasNWFluid[[-1,0]] = False
-    self.trappedW = np.zeros(self.totElements, dtype='bool')
     self.trappedNW = np.zeros(self.totElements, dtype='bool')
+    self.connNW = np.zeros(self.totElements, dtype='bool')
     
     self._areaWP = self._cornArea = self.areaSPhase.copy()
     self._areaNWP = self._centerArea = np.zeros(self.totElements) 
@@ -35,23 +32,18 @@ def initialize(self):
     self.areaNWPhase = self._areaNWP.view()
     self.gWPhase = self._condWP.view()
     self.gNWPhase = self._condNWP.view()
-    
-    self.clusterW = Cluster(self, 0)
+
+    self.clusterNW_ID = np.full(self.totElements, -5, dtype=np.int32)    
     self.clusterNW = Cluster(self, 1)
-    self.clusterW_ID = -5*np.ones(self.totElements, dtype='int')
-    self.clusterNW_ID = -5*np.ones(self.totElements, dtype='int')
-    
-    self.connNW = np.zeros(self.totElements, dtype='bool')
-    arrr = self.hasWFluid.copy()
+    arrr = self.hasNWFluid.copy()
     arrr[[0,-1]] = False
-    do.check_Trapping_Clustering(
-        self, self.elementListS[arrr], arrr.copy(), 0, 0, True, False)
-   
+    self.clusterNW.doClustering(np.flatnonzero(arrr), arrr, 0, True, True, True)
+    
     self.contactAng, self.thetaRecAng, self.thetaAdvAng =\
         do.__wettabilityDistribution__(self)
     self.Fd_Tr = do.__computeFd__(self, self.elemTriangle, self.halfAnglesTr)
     self.Fd_Sq = do.__computeFd__(self, self.elemSquare, self.halfAnglesSq)
-       
+           
     do.__initCornerApex__(self)
     __computePistonPc__(self)
     self.PcD[:] = self.PistonPcRec
@@ -104,11 +96,11 @@ def drainage(self):
     # targetFluid = np.zeros_like(self.fluid)
     # targetFluid[self.poreList] = (targetFluid_pore==2)
     # targetFluid[self.tList] = (targetFluid_throat==2)
-    
+    #from IPython import embed; embed()
     while self.filling:
         self.oldSatW = self.satW
+        #from IPython import embed; embed()
         __PDrainage__(self)
-        
         #MAD = np.sum(np.abs(self.fluid-targetFluid)*self.volarray)/np.sum(self.volarray)*100
         #print(self.capPresMax, targetFluid.sum(), self.fluid.sum(), MAD)
         # with open(os.path.join(MEMORY_DIR, f"drainage_{self.capPresMax}.pkl"),"wb") as f:
@@ -118,7 +110,7 @@ def drainage(self):
                 self.satW < self.finalSat+0.00001):
             self.filling = False
             break
-        
+
         self.oldPcTarget = self.capPresMax
         self.PcTarget = min(self.maxPc+1e-7, self.PcTarget+(
             self.minDeltaPc+abs(self.PcTarget)*self.deltaPcFraction))
@@ -163,9 +155,10 @@ def drainage(self):
     #from IPython import embed; embed()
     
     # import dill
-    # MEMORY_DIR = f"./saved_simulation_{self.title}_16072025"
+    # MEMORY_DIR = f"./saved_simulation_{self.title}_20072025"
+    # os.makedirs(MEMORY_DIR, exist_ok=True)
     # with open(os.path.join(MEMORY_DIR, f"drainage_{int(self.capPresMax)}.pkl"),"wb") as f:
-        # dill.dump(self, f)
+    #     dill.dump(self, f)
     
 
 def popUpdateOilInj(self):
@@ -174,25 +167,15 @@ def popUpdateOilInj(self):
     capPres = self.PcD[k]
     self.capPresMax = max(self.capPresMax, capPres)
     if not self.trappedW[k]:
-        self.fluid[k] = 1
-        self.hasNWFluid[k] = True
-        self.connNW[k] = True
-        self.clusterNW_ID[k] = 0
-        self.clusterNW.members[0, k] = True
+        self.clusterNW.fill_with_phase(k, self.capPresMax)
         self.PistonPcRec[k] = self.centreEPOilInj[k]
         arr = self.elem[k].neighbours[self.elem[k].neighbours>0]
         arr = arr[(self.fluid[arr]==0) & (~self.trappedW[arr])]
         if self.isCircle[k]:
-            kk = self.clusterW_ID[k]
-            self.clusterW_ID[k] = -5
-            self.clusterW.members[kk,k] = False
-            self.connW[k] = False
-            self.hasWFluid[k] = False
-            do.check_Trapping_Clustering(
-                self, arr.copy(), self.hasWFluid.copy(), 0, self.capPresMax, True)        
+            self.clusterW.unfill_phase(k, self.capPresMax)
         self.cnt += 1
         self.invInsideBox += self.isinsideBox[k]
-        __update_PcD_ToFill__(self, arr)            
+        __update_PcD_ToFill__(self, arr) #
    
 
 def __PDrainage__(self):
@@ -221,7 +204,7 @@ def __PDrainage__(self):
         if (self.PcD[self.ElemToFill[0]] > self.PcTarget):
             self.capPresMax = max(self.capPresMax, self.PcTarget)
             endWhile = True
-        
+       
         __CondTP_Drainage__(self)
         self.satW = do.Saturation(self, self.areaWPhase, self.areaSPhase)
         if self.satW-self.oldSatW!=0.0:
@@ -232,16 +215,17 @@ def __PDrainage__(self):
         
         if endWhile:
             break
-
+    
     if endWhile:
         self.capPresMax = self.PcTarget
     else:
         self.PcTarget = self.capPresMax
-
+    
     __CondTP_Drainage__(self)
     self.satW = do.Saturation(self, self.areaWPhase, self.areaSPhase)
     do.computePerm(self, self.capPresMax)
     self.resultD_str = do.writeResult(self, self.resultD_str, self.capPresMax)
+    
 
 
 def __computePc__(self, arrr, Fd):
@@ -265,6 +249,7 @@ def __func(self, i):
     if arr.any():
         return self.PistonPcRec[arr[(arr>0) & self.hasNWFluid[arr]]].min()
     return 0
+
 
 def __update_PcD_ToFill__(self, arr) -> None:
     minNeiPc = np.array([*map(lambda ar: __func(self, ar), arr)])
