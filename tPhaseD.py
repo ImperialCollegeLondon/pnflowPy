@@ -91,8 +91,8 @@ def drainage(self):
     # import dill
     # MEMORY_DIR = f"./saved_simulation_{self.title}"
     # os.makedirs(MEMORY_DIR, exist_ok=True)
-    # targetFluid_pore = np.loadtxt('/home/aiadebimpe/PoreFlow/data/fPores_BentSepi_drainage_fluid_occupancy.dat', dtype=int)
-    # targetFluid_throat = np.loadtxt('/home/aiadebimpe/PoreFlow/data/fThroats_BentSepi_drainage_fluid_occupancy.dat', dtype=int)
+    # targetFluid_pore = np.loadtxt('/data4/Ademola/OstRipening/data/fPores_BentSepi_drainage_fluid_occupancy.dat', dtype=int)
+    # targetFluid_throat = np.loadtxt('/data4/Ademola/OstRipening/data/fThroats_BentSepi_drainage_fluid_occupancy.dat', dtype=int)
     # targetFluid = np.zeros_like(self.fluid)
     # targetFluid[self.poreList] = (targetFluid_pore==2)
     # targetFluid[self.tList] = (targetFluid_throat==2)
@@ -154,11 +154,11 @@ def drainage(self):
     print(f'no of pops: {self.pop}, no of updates: {self.update}')
     #from IPython import embed; embed()
     
-    # import dill
-    # MEMORY_DIR = f"./saved_simulation_{self.title}_20072025"
-    # os.makedirs(MEMORY_DIR, exist_ok=True)
-    # with open(os.path.join(MEMORY_DIR, f"drainage_{int(self.capPresMax)}.pkl"),"wb") as f:
-    #     dill.dump(self, f)
+    import dill
+    MEMORY_DIR = f"./saved_simulation_{self.title}"
+    os.makedirs(MEMORY_DIR, exist_ok=True)
+    with open(os.path.join(MEMORY_DIR, f"drainage_{int(self.capPresMax)}.pkl"),"wb") as f:
+        dill.dump(self, f)
     
 
 def popUpdateOilInj(self):

@@ -83,7 +83,7 @@ def imbibition(self):
     #targetFluid_pore = np.loadtxt(
      #   '/data4/Ademola/OstRipening/data/fPores_BentSepi_imbibition_fluid_occupancy.dat', #dtype=int)
     #targetFluid_throat = np.loadtxt(
-     #   '/data4/Ademola/OstRipening/data/fThroats_BentSepi_imbibition _fluid_occupancy.dat', #dtype=int)
+     #   '/data4/Ademola/OstRipening/data/fThroats_BentSepi_imbibition_fluid_occupancy.dat', #dtype=int)
     # targetFluid = np.zeros_like(self.fluid)
     # targetFluid[self.poreList] = (targetFluid_pore==2)
     # targetFluid[self.tList] = (targetFluid_throat==2)
@@ -138,12 +138,12 @@ def imbibition(self):
 
     print(f'no of pops: {self.pop}, no of updates: {self.update}')
     
-    # import dill
-    # MEMORY_DIR = f"./saved_simulation_{self.title}_20072025"
-    # os.makedirs(MEMORY_DIR, exist_ok=True)
-    # with open(os.path.join(MEMORY_DIR, f"imbibition_{int(self.capPresMin)}.pkl"),"wb") as f:
-    #     dill.dump(self, f)
-    from IPython import embed; embed()
+    import dill
+    MEMORY_DIR = f"./saved_simulation_{self.title}"
+    os.makedirs(MEMORY_DIR, exist_ok=True)
+    with open(os.path.join(MEMORY_DIR, f"imbibition_{int(self.capPresMin)}.pkl"),"wb") as f:
+        dill.dump(self, f)
+    #from IPython import embed; embed()
 
 
 def __PImbibition__(self):

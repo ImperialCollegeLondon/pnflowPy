@@ -128,6 +128,7 @@ class Cluster():
 
             ct = self.availableID.pop(0)
             self.clusterID[mem] = ct
+            self[ct] = {'key':ct, 'parent':self}
             addMembers(ct, mem, self.members, self.trapped, trappedStatus, self.size)
                 
             self.pc[ct] = Pc
@@ -151,6 +152,7 @@ class Cluster():
     def unfill_phase(self, i, Pc):
         oldID = self.clusterID[i]
         self.members[oldID, i] = False
+        self.size[oldID] -= 1
         self.hasFluid[i] = False
         self.clusterID[i] = -5
         neigh = self.obj.connectivity_graph[i]
@@ -378,7 +380,7 @@ def removeMembers(keys, mem, members, trapped, trappedStatus, size):
     trapped[mem] = trappedStatus
     kk = np.unique(keys)
     size[kk] -= np.bincount(keys)[kk]
-    emptyKeys = kk[size[kk]==0]
+    emptyKeys = kk[(size[kk]==0)&(kk!=0)]
     return emptyKeys
 
 
