@@ -1098,6 +1098,9 @@ def updateObj(self, obj):
             # Fallback to setattr if any issue in comparison or assignment
             setattr(self, key, new_val)
 
+    self.clusterW.restore_views(self)
+    self.clusterNW.restore_views(self)
+
 
 
 
