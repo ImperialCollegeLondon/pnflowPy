@@ -88,7 +88,7 @@ class Cluster():
                 ct = self.availableID.pop(0)
                 cluster_ID[members] = ct
                 self.members[ct][members] = True
-                self[ct] = {'key':ct, }
+                self[ct] = {'key':ct, 'parent':self}
                 self.pc[ct] = Pc
                 trapped[members] = arrDict[k]['trappedStatus']
                 self.clustConToExit[ct] = arrDict[k]['members'][self.obj.conTToExit].any()

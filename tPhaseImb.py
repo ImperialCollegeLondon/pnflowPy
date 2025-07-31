@@ -17,6 +17,7 @@ class TwoPhaseImbibition:
         obj.writeTrappedData = writeTrappedData
 
 def initialize(self):
+    #from IPython import embed; embed()
     self.porebodyPc = np.zeros(self.totElements)
     self.snapoffPc = np.zeros(self.totElements)
     self.PistonPcAdv = np.zeros(self.totElements)
@@ -143,7 +144,7 @@ def imbibition(self):
     os.makedirs(MEMORY_DIR, exist_ok=True)
     with open(os.path.join(MEMORY_DIR, f"imbibition_{int(self.capPresMin)}.pkl"),"wb") as f:
         dill.dump(self, f)
-    #from IPython import embed; embed()
+    from IPython import embed; embed()
 
 
 def __PImbibition__(self):
@@ -322,22 +323,20 @@ def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True, overrideTrap
     
     if np.any(arrrS):      
         arrS = np.flatnonzero(arrrS)      
-        conAngPS, apexDistPS = do.cornerApex(self, arrrS, Pc, 
-            self.contactAng.copy(), self.m_cornExists, 4)
+        conAngPS, apexDistPS = do.cornerApex(self, arrrS, Pc, self.m_cornExists, 4)
         cornA[arrS], cornG[arrS] = do.calcAreaW(self, arrrS, conAngPS, apexDistPS, 4)
         
     if np.any(arrrT):
         arrT = np.flatnonzero(arrrT)     
-        conAngPT, apexDistPT = do.cornerApex(self, arrrT, Pc, 
-            self.contactAng.copy(), self.m_cornExists, 3)
-        cornA[arrT], cornG[arrT] = do.calcAreaW(self, arrrT, conAngPT, apexDistPT, 4)
+        conAngPT, apexDistPT = do.cornerApex(self, arrrT, Pc, self.m_cornExists, 3)
+        cornA[arrT], cornG[arrT] = do.calcAreaW(self, arrrT, conAngPT, apexDistPT, 3)
         
     if np.any(arrrC):
         arrC = np.flatnonzero(arrrC)
         self._cornArea[arrC] = 0.0
         self._cornCond[arrC] = 0.0
           
-    check_update_corner_area_cond(arrr, cornA, cornG, self.maxCornerArea, 
+    update_area_cond(arrr, cornA, cornG, self.maxCornerArea, 
         self.maxCornerCond, self.areaSPhase, self.trappedNW, self.fluid, 
         self._areaWP, self._areaNWP, self._condWP, self._condNWP,
         self._cornArea, self._cornCond, self._centerArea, self._centerCond,
@@ -345,7 +344,7 @@ def __CondTPImbibition__(self, arrr=None, Pc=None, updateArea=True, overrideTrap
     
 
 @njit(parallel=True, cache=True)
-def check_update_corner_area_cond(arrr, cornArea, cornCond, maxCornerArea, 
+def update_area_cond(arrr, cornArea, cornCond, maxCornerArea, 
     maxCornerCond, areaSPhase, trapped, fluid, _areaWP, _areaNWP, _condWP, 
     _condNWP,_cornerArea, _cornerCond, _centerArea, _centerCond,
     gwSPhase, gnwSPhase, updateArea, overrideTrapping):
@@ -636,7 +635,7 @@ def __porebodyFilling__(self, ind):
         arr = self.PTConnections[ind]
         cond = (self.fluid[arr]==1)&self.PTValid[ind]  
         arr2 = np.sort(np.where(cond, self.randNum[arr], np.nan))[:, :6]
-        cond1 = (arr2!=np.nanmax(arr2, axis=1)[:,np.newaxis])&(~np.isnan(arr2))
+        cond1 = (arr2!=np.nanmax(arr2, axis=1, initial=0.0)[:,np.newaxis])&(~np.isnan(arr2))
         sumrand = np.sum(arr2, where=cond1, axis=1)*15000
 
         #Blunt2

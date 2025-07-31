@@ -6,9 +6,7 @@ import numpy as np
 import pandas as pd
 from sortedcontainers import SortedList
 from functools import partial
-
 from cluster import Cluster
-#from clustering import Cluster
 import utilities as do
 
 
@@ -290,8 +288,7 @@ def __CondTP_Drainage__(self):
     Pc = np.full(self.totElements, self.capPresMax)
     if np.any(arrrT):
         do.createFilms(self, arrrT, self.PcD, 3)
-        conAngPT, apexDistPT = do.cornerApex(self, arrrT, Pc, 
-            self.contactAng.copy(), self.m_cornExists, 3)
+        conAngPT, apexDistPT = do.cornerApex(self, arrrT, Pc, self.m_cornExists, 3)
        
         cornA, cornG = do.calcAreaW(self, arrrT, conAngPT, apexDistPT, 3)
         arrT = np.flatnonzero(arrrT)
@@ -303,8 +300,7 @@ def __CondTP_Drainage__(self):
     
     if np.any(arrrS):
         do.createFilms(self, arrrS, self.PcD, 4)
-        conAngPS, apexDistPS = do.cornerApex(self, arrrS, Pc, 
-            self.contactAng.copy(), self.m_cornExists, 4)
+        conAngPS, apexDistPS = do.cornerApex(self, arrrS, Pc, self.m_cornExists, 4)
             
         cornA, cornG = do.calcAreaW(self, arrrS, conAngPS, apexDistPS, 4)
         arrS = np.flatnonzero(arrrS)

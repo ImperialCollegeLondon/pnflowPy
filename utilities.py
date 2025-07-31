@@ -753,7 +753,7 @@ def __finitCornerApex__(self, Pc):
     if np.any(arrrT):
         arrT = np.flatnonzero(arrrT)
         _, apexDist[arrT,:3] = cornerApex(
-            self, arrrT, Pc, contactAng, m_cornExists, 3, overidetrapping=True)
+            self, arrrT, Pc, m_cornExists, 3, overidetrapping=True)
         
         finitCornerApex_numba(arrrT, m_cornExists, self.m_halfAngles, Pc, self.m_inited, 
             self.m_initOrMaxPcHist, self.m_initOrMinApexDistHist, self.m_advPc, self.m_recPc, 
@@ -763,7 +763,7 @@ def __finitCornerApex__(self, Pc):
     if np.any(arrrS):
         arrS = np.flatnonzero(arrrS)
         _, apexDist[arrS] = cornerApex(
-            self, arrrS, Pc, contactAng, m_cornExists, 4, overidetrapping=True)
+            self, arrrS, Pc, m_cornExists, 4, overidetrapping=True)
         
         finitCornerApex_numba(arrrS, m_cornExists, self.m_halfAngles, Pc, self.m_inited, 
             self.m_initOrMaxPcHist, self.m_initOrMinApexDistHist, self.m_advPc, self.m_recPc, 
@@ -799,12 +799,12 @@ def finitCornerApex_numba(arrr, m_cornExists, halfAng, Pc, m_inited, m_initOrMax
             
     
 
-def cornerApex(self, arrr, Pc, contactAng, m_cornExists, nCorners, accurat=False,                  
+def cornerApex(self, arrr, Pc, m_cornExists, nCorners, accurat=False,                  
                overidetrapping=False):
     
     delta = 0.0 if accurat else self._delta
     return corner_apex_numba(
-        arrr, self.m_halfAngles, Pc, contactAng, m_cornExists,
+        arrr, self.m_halfAngles, Pc, m_cornExists,
         self.m_initOrMaxPcHist, self.m_initOrMinApexDistHist, self.m_advPc,
         self.m_recPc, self.m_initedApexDist, self.trappedW, self.trappedNW, 
         self.clusterW.pc, self.clusterNW.pc, self.clusterW_ID, self.clusterNW_ID, 
@@ -910,7 +910,7 @@ def corner_apex_1D_numba(
 
 @njit(fastmath=True, cache=True)
 def corner_apex_numba(
-    arrr, halfAng, Pc, _conAng, m_cornExists, m_initOrMaxPcHist,
+    arrr, halfAng, Pc, m_cornExists, m_initOrMaxPcHist,
     m_initOrMinApexDistHist, advPc, recPc, initedApexDist, 
     trappedW, trappedNW, clusterW_pc, clusterNW_pc, clusterW_ID, 
     clusterNW_ID, sigma, thetaAdvAng, thetaRecAng, 

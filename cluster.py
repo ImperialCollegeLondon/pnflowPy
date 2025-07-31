@@ -27,24 +27,13 @@ class Cluster():
         self.trappedStatus = np.zeros(numClusters, dtype=np.bool_)
         self.connected = np.zeros(numClusters, dtype=np.bool_)
         self.size = np.zeros(numClusters, dtype=np.int32)
-        self.fluid = obj.fluid.view()
         self.temp = LookupClass(obj.totElements, obj.nPores, obj.connectivity_graph_flat.size)
+        self.restore_views(obj)
         
         # elements
         self.clustConToExit = np.zeros(obj.totElements, dtype=np.bool_)
         
-        if phase==0:
-            self.trapped = obj.trappedW.view()
-            self.conn = obj.connW.view()
-            self.hasFluid = obj.hasWFluid.view()
-            self.clusterID = obj.clusterW_ID.view()
-        else:
-            self.trapped = obj.trappedNW.view()
-            self.conn = obj.connNW.view()
-            self.hasFluid = obj.hasNWFluid.view()
-            self.clusterID = obj.clusterNW_ID.view()
-        
-
+       
     def __getitem__(self, key):
         if key in self.keys:
             index = self.keys.index(key)
@@ -59,7 +48,21 @@ class Cluster():
             except IndexError:
                 self.keys.append(key)
             self.values.append(ClusterObj(key, self, self.obj))
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        del state['fluid']
+        del state['trapped']
+        del state['conn']
+        del state['hasFluid']
+        del state['clusterID']
+        return state
+
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
             
+
     def __delitem__(self, key):
         if key in self.keys:
             index = self.keys.index(key)
@@ -71,8 +74,24 @@ class Cluster():
         else:
             raise KeyError(f'Key "{key}" not found')
         
+
     def items(self):
         return zip(self.keys, self.values)
+    
+
+    def restore_views(self, obj):
+        self.obj = obj
+        self.fluid = obj.fluid.view()
+        if self.phase == 0:
+            self.trapped = obj.trappedW.view()
+            self.conn = obj.connW.view()
+            self.hasFluid = obj.hasWFluid.view()
+            self.clusterID = obj.clusterW_ID.view()
+        else:
+            self.trapped = obj.trappedNW.view()
+            self.conn = obj.connNW.view()
+            self.hasFluid = obj.hasNWFluid.view()
+            self.clusterID = obj.clusterNW_ID.view()
     
     
     def doClustering(self, arr, notdone, Pc, updateCluster=False,
@@ -171,7 +190,6 @@ class Cluster():
                                      self.temp.done, self.temp.mList, self.temp.visited)
     
 
-
     def resizeClusters(self, size):
         self.members = np.vstack(
             (self.members, np.zeros([size,self.obj.totElements], dtype=np.bool_)))
@@ -184,116 +202,8 @@ class Cluster():
         for c in np.arange(len(self.keys), self.pc.size):
             self[c] = {'key': c}
         self.availableID.update(np.flatnonzero(self.size==0))
-
+       
             
-            
-    def updateNeighMatrix(self, other, cond=None):
-        '''This updates the neighMatrix!!! might be later revised!!!'''
-        if cond is None:
-            cond = np.ones(other.nThroats, dtype=bool)
-        
-        cluster_ID =  other.clusterNW_ID if self.phase==1 else other.clusterW_ID
-        def _f(cond):
-            P1array = other.P1array[cond]
-            P2array = other.P2array[cond]
-            tList = other.tList[cond]
-        
-            clustP1 = cluster_ID[P1array]
-            clustP2 = cluster_ID[P2array]
-            clustT = cluster_ID[tList]
-
-            condT = (clustT>=0)
-            condP1 = (P1array>0) & (clustP1!=clustT)
-            condP1_P1 = condP1 & (clustP1>=0) # T is neighbour to P1
-            condP1_T = condP1 & condT   # P1 is neighbour to T
-            condP2 = (P2array>0) & (clustP2!=clustT)
-            condP2_P2 = condP2 & (clustP2>=0) & (clustP2 != clustP1) # T is neighbour to P2
-            condP2_T = condP2 & condT   # P2 is neighbour to T
-
-            ''' check if there is any coalescence '''
-            condP1_P1_T = condP1_P1 & condT # P1 and T should coalesce together
-            condP2_P2_T = condP2 & condT & (clustP2>=0) # P2 and T should coalesce together
-            return (clustP1, clustP2, clustT, condP1_P1, condP1_T, 
-                    condP2_P2, condP2_T, condP1_P1_T, condP2_P2_T, P1array, P2array, tList)
-        
-        while True:
-            (clustP1, clustP2, clustT, condP1_P1, condP1_T, 
-            condP2_P2, condP2_T, condP1_P1_T, condP2_P2_T,
-            P1array, P2array, tList) = _f(cond)
-            if condP1_P1_T.any() or condP2_P2_T.any():
-                arr = np.sort(np.concatenate((
-                    np.array([clustP1[condP1_P1_T], clustT[condP1_P1_T]]).T,
-                    np.array([clustP2[condP2_P2_T], clustT[condP2_P2_T]]).T)), axis=1)
-                arr = list(set(map(tuple, arr)))
-                
-                _arr = np.unique(arr)
-                neigh = self.neighbours[_arr].any(axis=0)
-                self.coalesceClusters(arr, cluster_ID, other)
-                    
-                neigh = neigh|self.members[_arr].any(axis=0)
-                cond = cond | neigh[other.tList]
-            else:
-                keysToUpdate = np.unique(cluster_ID[other.tList[cond]])
-                keysToUpdate = keysToUpdate[keysToUpdate>=0]
-                break
-
-        clust = np.concatenate((clustP1[condP1_P1],  clustT[condP1_T], 
-                                clustP2[condP2_P2], clustT[condP2_T]))
-        neigh = np.concatenate((tList[condP1_P1],  P1array[condP1_T], 
-                                tList[condP2_P2],  P2array[condP2_T]))
-
-        self.neighbours[keysToUpdate] = False
-        self.neighbours[clust, neigh] = True
-
-        return
-
-
-    def coalesceClusters(self, arr, cluster_ID, other):
-        ''' coalesce clusters together '''
-        arr = [*map(np.array, arr)]
-        values, counts = np.unique(arr, return_counts=True)
-        
-        def _f1(c, ar, other):
-            # compute new moles, volume and pc
-            print(f'coalesced clusters: {ar}')
-            _mem = self.members[ar].any(axis=0)
-            mem = other.elementListS[_mem]
-            if _mem[other.conTToIn].any() and _mem[other.conTToOut].any():
-                c=0
-                ar = ar[ar!=0]
-                self.moles[c] += self.moles[ar].sum()
-                self.volume[c] += self.volume[ar].sum()
-            else:
-                self.moles[c] = self.moles[ar].sum()
-                self.volume[c] = self.volume[ar].sum()
-            
-            pc = np.append(self.pc[c], self.pc[ar])
-            pc = pc[pc>other.Pc]
-            if pc.size==0:
-                self.pc[c] = other.Pc
-            else:
-                self.pc[c] = pc[pc>other.Pc].min()
-        
-            mem1 = mem[cluster_ID[mem]!=c]
-            clustID = cluster_ID[mem1]
-            cluster_ID[mem1] = c
-            self.members[clustID, mem1] = False
-            self.members[c, mem1] = True
-            return c
-        
-        while counts.size>0:
-            c = values[np.argmax(counts)]
-            arrC = [ar[ar!=c][0] for ar in arr if c in ar]
-            self.neighbours[arrC] = False
-            arrC.append(c)
-            c1 = _f1(c, np.array(arrC), other)
-            if c1 in arrC: arrC.remove(c1)
-            for c2 in arrC: del self[c2]
-            arr = [ar for ar in arr if c not in ar]
-            values, counts = np.unique(arr, return_counts=True)
-            
-        return
-    
     
 class ClusterObj:
     def __init__(self, key, parent, obj):
