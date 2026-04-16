@@ -46,10 +46,10 @@ Quick installation can be achieved by replicating the environment in Anaconda:
 To run the pnflowPy , you should first generate the networks from the dry scan images of porous media using the **[pnextract](https://github.com/ImperialCollegeLondon/pnextract)** or **[poreXtractor](https://github.com/ImperialCollegeLondon/poreOccupancyAnalysis)** module, see the documentation of pnextract executable. Then you should copy the generated networks into the data folder and edit the input_pnflow.dat by setting the NETWORK keyword and other keywords. Full descriptions of the keywords in the input_pnflow.dat can be found in doc/pnflow_guide.pdf inside the **[pnflow](https://github.com/ImperialCollegeLondon/pnflow)** module. However, only the keywords inside the input_pnflow.dat have been implemented, others might be added later for more robustness.
 
 You can then run the pnflowPy by doing the following:
-  1.  Change directory into the pnflowPy folder.
+  1.  Change directory into the parent folder where the pnflowPy module is.
   2.  Running the following command in terminal or in Windows command-prompt (cmd):
       ```python
-      python main.py data/input_pnflow.dat
+      python -m pnflowPy.main pnflowPy/data/input_pnflow.dat
 
 The generated network files of a 1000 cube water-wet Bentheimer sandstone have been provided in the data folder (image can be found in https://www.imperial.ac.uk/earth-science/research/research-groups/pore-scale-modelling/micro-ct-images-and-networks/) and this could be used for an example.
 
@@ -65,4 +65,4 @@ For contacts and references please see: https://www.imperial.ac.uk/earth-science
 Alternatively, contact Ademola Adebimpe:
 
   - Email: **a.adebimpe21@imperial.ac.uk**
-  - Additional Email: **ai.bimpe@gmail.com**
+  - Additional Email: **aisaac.adebimpe@gmail.com**

@@ -8,7 +8,6 @@ from sortedcontainers import SortedList
 from functools import partial
 from . import utilities as do
 from .compat import Cluster
-from .testing_efficiency import *
 
 
 class TwoPhaseDrainage:

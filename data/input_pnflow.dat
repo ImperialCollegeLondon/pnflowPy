@@ -7,8 +7,10 @@ NETWORK   F Bentheimer ;   % the base name for of the network file, without _lin
 SAT_CONTROL  % this keyword replaces SAT_TARGET in poreflow code
 % finalSat   maxPc    deltaSw   minDeltaPc   deltaPcFraction   calcKr  calcI  Inject from   Escape to
 % -------------------------------------------------------------------------   Left Right    Left Right 
- 0.1     2.5e4   0.1      1000.0        0.15           T       T        T    F         T   T       
- 1.00   -10000    0.1      10000.0        0.15           T       T        T    F         T   T                
+ 0.0     2.5e4   0.1      1000.0        0.15           T       T        T    F         T   T       
+ 1.00   -10000    0.1      10000.0        0.15           T       T        T    F         T   T         
+ 0.0     2.5e4   0.1      1000.0        0.15           T       T        T    F         T   T       
+ 1.00   -10000    0.1      10000.0        0.15           T       T        T    F         T   T          
 ;
 
 CALC_BOX   0.1 0.725;
