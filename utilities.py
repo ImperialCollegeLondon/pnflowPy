@@ -1,12 +1,8 @@
 import numpy as np
 from scipy.sparse import csr_matrix
-import warnings
-from functools import reduce
 from numba import njit, prange
-from numba.types import int32, float32, boolean, void, Tuple, int64, float64
+from numba.types import int32, float32, boolean, void, int64, float64
 import os
-import dill
-import sys
 import joblib
 from .solver import Solver
 
@@ -176,6 +172,7 @@ def computegL(self, g) -> np.array:
         g, self.nThroats
     )
 
+
 @njit(parallel=True, cache=True)
 def compute_gL_numba(P1array, P2array, tList, LP1, LP2, LT, g, nThroats):
     gL = np.zeros(nThroats, dtype=np.float64)
@@ -192,20 +189,6 @@ def compute_gL_numba(P1array, P2array, tList, LP1, LP2, LT, g, nThroats):
             elif (gP1 > 0) and (gP2 == 0) and (LP1[i] > 0):
                 gL[i] = 1.0 / (LT[i]/gT + LP1[i]/gP1)
     return gL
-
-
-def computePerm0(self, Pc):
-    gwL = computegL(self, self.gWPhase)
-    self.qW = computeFlowrate(self, gwL, 0, Pc)
-    self.krw = self.qW/self.qwSPhase
-    if self.fluid[self.conTToOutletBdr].sum() > 0:
-        gnwL = computegL(self, self.gNWPhase)
-        self.qNW = computeFlowrate(self, gnwL, 1, Pc)
-        self.krnw = self.qNW/self.qnwSPhase
-    else:
-        self.qNW, self.krnw = 0.0, 0.0
-    
-    self.fw = self.qW/(self.qW + self.qNW)
 
 
 def computePerm(self, Pc):
@@ -263,26 +246,27 @@ def __wettabilityDistribution__(self, conAng=None, shuffle=True, randNum=None) -
         
     if randNum is None:
         randNum = self.rand(self.nThroats)
-    conda = (self.P1array > 0)
-    condb = (self.P2array > 0)
-    condc = (conda & condb)
 
-                
-    contactAng[self.tList[~conda]] = contactAng[self.P2array[~conda]]
-    contactAng[self.tList[~condb]] = contactAng[self.P1array[~condb]]
-    contactAng[self.tList[condc & (randNum > 0.5)]] = contactAng[
-        self.P1array[condc & (randNum > 0.5)]]
-    contactAng[self.tList[condc & (randNum <= 0.5)]] = contactAng[
-        self.P2array[condc & (randNum <= 0.5)]]
-        
-    if self.title=='test1D':
-        contactAng[[3, 13,16,19,22,25]] = 0.0
-        
-    
+    if self.CAFile:
+        contactAng = np.loadtxt(os.path.join('data', self.CAFile + '.dat'), dtype=np.float32)
+        contactAng[[0, -1]] = 0.0
+    else:
+        conda = (self.P1array > 0)
+        condb = (self.P2array > 0)
+        condc = (conda & condb)
+               
+        contactAng[self.tList[~conda]] = contactAng[self.P2array[~conda]]
+        contactAng[self.tList[~condb]] = contactAng[self.P1array[~condb]]
+        contactAng[self.tList[condc & (randNum > 0.5)]] = contactAng[
+            self.P1array[condc & (randNum > 0.5)]]
+        contactAng[self.tList[condc & (randNum <= 0.5)]] = contactAng[
+            self.P2array[condc & (randNum <= 0.5)]]
+
     arr = np.array([contactAng.mean(), contactAng.std(), contactAng.min(), contactAng.max()]
                     )*180/np.pi
     print('contact Angles (all elements): mean: {}, std: {}, min: {}, max: {}'.format(
         np.round(arr[0],2), np.round(arr[1],2), np.round(arr[2],2), np.round(arr[3],2)))
+
     thetaRecAng, thetaAdvAng = setContactAngles(self, contactAng)
 
     return contactAng, thetaRecAng, thetaAdvAng
@@ -597,20 +581,6 @@ def finitCornerApex_numba(
             m_inited[k] = False
             m_initedApexDist[k] = ad
 
-            
-    
-
-def cornerApex(self, arrr, Pc, m_cornExists, nCorners, accurate=False,                  
-               overidetrapping=False):
-    
-    corner_apex_numba(
-        arrr, self.m_halfAngles, Pc, self.m_cornExists, self.m_inited, self.m_initOrMaxPcHist,
-        self.m_initOrMinApexDistHist, self.m_advPc, self.m_recPc, self.m_initedApexDist, self.is_oil_inj,
-        self.totElements, self.sigma, self.contactAng, self.thetaAdvAng, self.thetaRecAng, 
-        self.nCorners_arr, self.cWP.trapped, self.cWP.clusterID, self.cWP.pc, self.cNWP.trapped, 
-        self.cNWP.clusterID, self.cNWP.pc, self.conAng_cur, self.apexDist_cur, self.MOLECULAR_LENGTH, 
-        self._delta, accurate, overidetrapping)
-
   
 @njit(fastmath=True, cache=True, parallel=True)
 def corner_apex_1D_numba(
@@ -888,7 +858,6 @@ def initCornerApex_numba(
             advPc[k] = sigma * np.cos(min(np.pi, theta_adv + ha)) / denom
 
 
-
 @njit(cache=True, parallel=True)
 def Pc_pistonHing_numba(
     arrr, halfAng, m_cornExists, m_initOrMaxPcHist, m_initOrMinApexDistHist,
@@ -1109,25 +1078,6 @@ def __fileName__(self):
         self.file_name = os.path.join(
             self.results_dir,"{}_{}_cycle_{}_{}.csv".format(
                 self.title, displacement_type, self.cycle, self._num))
-
-
-def sizeof(obj):
-    # numpy arrays: include data buffer
-    if isinstance(obj, np.ndarray):
-        return obj.nbytes
-
-    # python containers: estimate recursively (shallow)
-    if isinstance(obj, dict):
-        return sys.getsizeof(obj) + sum(sizeof(k) + sizeof(v) for k, v in obj.items())
-
-    if isinstance(obj, (list, tuple, set)):
-        return sys.getsizeof(obj) + sum(sizeof(x) for x in obj)
-
-    # fallback: shallow size only
-    try:
-        return sys.getsizeof(obj)
-    except Exception:
-        return 0
 
 
 def saveState(self, fname):

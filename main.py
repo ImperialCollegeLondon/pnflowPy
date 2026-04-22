@@ -1,7 +1,7 @@
 from datetime import date
 import sys
 import os
-import pandas as pd
+
 import dill
 import joblib
 
@@ -50,8 +50,6 @@ def main():
         saveImbibition = True
         skip_drainage = False
         skip_imbibition = False
-        skip_first_cycle = False
-        start_from_scratch = True
         MEMORY_DIR = f"quasi_static_results/"
 
         # two Phase simulations
