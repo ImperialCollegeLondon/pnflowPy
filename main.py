@@ -87,7 +87,7 @@ def main():
                         netsim.maxPc = Pc
                         if firstDrainCycle:
                             (netsim.wettClass, netsim.minthetai, netsim.maxthetai, netsim.delta,
-                                netsim.eta, netsim.distModel, netsim.sepAng) = input_data.initConAng('INIT_CONT_ANG')
+                                netsim.eta, netsim.distModel, netsim.sepAng, netsim.CAFile) = input_data.initConAng('INIT_CONT_ANG')
                             PDrainage(netsim, writeData=writeData,              
                                 writeTrappedData=writeTrappedData)
 
@@ -118,7 +118,7 @@ def main():
                         
                         if firstImbCycle:
                             (netsim.wettClass, netsim.minthetai, netsim.maxthetai, netsim.delta,
-                                netsim.eta, netsim.distModel, netsim.sepAng) = input_data.initConAng(
+                                netsim.eta, netsim.distModel, netsim.sepAng, netsim.CAFile) = input_data.initConAng(
                                     'EQUIL_CON_ANG')
                                     
                             PImbibition(netsim, writeData=writeData, writeTrappedData=writeTrappedData)

@@ -109,7 +109,7 @@ class Cluster():
         oldSize = self.pc.size
         newSize = oldSize + size
         self.heads_arr = np.concatenate((self.heads_arr, np.full(size, -5, dtype=np.int32)))
-        self.mem_offsets = np.concatenate((self.mem_offsets, np.full(size, -5, dtype=np.int32)))
+        self.mem_offsets = np.concatenate((self.mem_offsets, np.zeros(size, dtype=np.int32)))
         self._neighbours.extend([[] for _ in range(size)])
 
         for attr in ['pc', 'trappedStatus', 'connected', 'sizes']:
@@ -142,8 +142,13 @@ class Cluster():
         start, end = ntwk.cg_offsets[i], ntwk.cg_offsets[i+1]
         neigh = ntwk.connectivity_graph_flat[start:end]
         neigh = neigh[self.hasFluid[neigh]]
-        self.doClustering(neigh, Pc, True, True, True)
-        
+        if neigh.size>0:
+            self.doClustering(neigh, Pc, True, True, True)
+        else:
+            offset = self.mem_offsets[k]
+            self.mem_offsets[k+1:] -= 1
+            self.members[offset:-1] = self.members[offset+1:]
+            self.heads_arr[k] = -5
 
     def computeFlowrate(self, conductance, vector_mode=False):
         
@@ -469,6 +474,30 @@ def compute_qp_numba(P1array, P2array, tList, gL, nThroats, pres, poreList, c, a
 
 
 @njit(cache=True)
+def dsu_helper(cid, curr, is_connected, is_trapped, pc, sizes, clusterID, 
+    clusterPc, trapped_arr, trappedStatus, conn_arr, connected, 
+    neighbours_updated, updateConnectivity):
+        
+    old_cid = clusterID[curr]
+    neighbours_updated[old_cid] = False
+    clusterID[curr] = cid
+    sizes[cid] += curr.size
+    connected[cid] = is_connected
+    trappedStatus[cid] = is_trapped
+    trapped_arr[curr] = is_trapped
+    if updateConnectivity: conn_arr[curr] = is_connected
+    neighbours_updated[cid] = False
+    clusterPc[cid] = pc
+
+    old_cid = old_cid[old_cid >= 0]
+    while old_cid.size > 0:
+        cid0 = old_cid[0]
+        cond = (old_cid == cid0)
+        sizes[cid0] -= cond.sum()
+        old_cid = old_cid[~cond]
+
+
+@njit(cache=True)
 def parallel_exploration_dsu_with_assigning(arr, pc_val, hasFluid, cg_data, cg_offsets, 
     sizes, clusterID, clusterPc, temp_clusterID, toInlet, toOutlet, toInBdr, toOutBdr, 
     done, visited, members, mem_offsets, heads_arr, next_elem_arr, trapped_arr, 
@@ -477,11 +506,22 @@ def parallel_exploration_dsu_with_assigning(arr, pc_val, hasFluid, cg_data, cg_o
     nRoots = arr.size
     free = 1
     nClusters = sizes.size
+    is_connected_arr = np.zeros(nRoots, dtype=np.bool_)
+    is_trapped_arr = np.ones(nRoots, dtype=np.bool_)
+    elem_arr = np.zeros(members.size, dtype=np.int32)
+    elem_offset = np.zeros(nRoots+1, dtype=np.int32)
+        
+    n = 0
     for i in range(nRoots):
         ii = arr[i]
         if temp_clusterID[ii] != -5: continue
         has_in, has_out, has_inB, has_outB = False, False, False, False
         curr = doClustering_numba(ii, hasFluid, done, cg_data, cg_offsets, visited)
+        m = n+curr.size        
+        elem_arr[n:m] = curr
+        if i<nRoots:
+            elem_offset[i+1:] = m 
+        n = m        
         
         temp_clusterID[curr] = i
         if toInlet[curr].any(): has_in = True
@@ -489,58 +529,110 @@ def parallel_exploration_dsu_with_assigning(arr, pc_val, hasFluid, cg_data, cg_o
         if toInBdr[curr].any(): has_inB = True
         if toOutBdr[curr].any(): has_outB = True 
 
-        is_connected = has_inB and has_outB
-        is_trapped = not (has_in or has_out)
-        
-        if is_connected:
-            cid = 0
-        else:
+        is_connected_arr[i] = has_inB and has_outB
+        is_trapped_arr[i] = not (has_in or has_out)
+    
+    done[elem_arr[:m]] = True
+    mem0 = members[mem_offsets[0]:mem_offsets[1]]
+    size_0 = mem0.size
+    done_connected = False
+    for i in range(nRoots):
+        is_connected = is_connected_arr[i]
+        is_trapped = is_trapped_arr[i]
+        curr = elem_arr[elem_offset[i]:elem_offset[i+1]]
+        if not curr.any(): continue
+        if not is_connected:
             while sizes[free] > 0:
                 free += 1
                 if free == nClusters: 
                     raise RuntimeError("More clusters need to be formed !!!")
-            cid = free
+            cid = free            
+            heads_arr[cid] = curr[0]
+            next_elem_arr[curr[:-1]] = curr[1:]
+            next_elem_arr[curr[-1]] = -5
             free += 1
+            dsu_helper(cid, curr, is_connected, is_trapped, pc_val[i], sizes, 
+                clusterID, clusterPc, trapped_arr, trappedStatus, conn_arr, 
+                connected, neighbours_updated, updateConnectivity)
+        elif done_connected:
+            continue
+        else:    
+            cid = 0                
+            head = heads_arr[0]
+            heads_arr[0] = curr[0]
+            next_elem_arr[curr[:-1]] = curr[1:]
+            end = curr[-1]
+            dsu_helper(cid, curr, is_connected, is_trapped, pc_val[i], sizes, 
+                clusterID, clusterPc, trapped_arr, trappedStatus, conn_arr, 
+                connected, neighbours_updated, updateConnectivity)
+                
+            if i+1 < nRoots:
+                for j in range(i+1, nRoots):
+                    if not is_connected_arr[j]: continue
+                    curr = elem_arr[elem_offset[j]:elem_offset[j+1]]
+                    next_elem_arr[end] = curr[0]                    
+                    next_elem_arr[curr[:-1]] = curr[1:]
+                    end = curr[-1]
+                    dsu_helper(cid, curr, is_connected, is_trapped, pc_val[j], 
+                        sizes, clusterID, clusterPc, trapped_arr, trappedStatus, 
+                        conn_arr, connected, neighbours_updated, updateConnectivity)
+                        
+            next_elem_arr[end] = -5    
+            count = 0
+                
+            while count < size_0:
+                next = mem0[count]
+                if hasFluid[next] and not done[next]:
+                   done[next] = True
+                   next_elem_arr[end] = next
+                   next_elem_arr[next] = -5
+                   end = next
 
-        heads_arr[cid] = curr[0]
-        next_elem_arr[curr[:-1]] = curr[1:]
-        next_elem_arr[curr[-1]] = -5
-        old_cid = clusterID[curr]
+                count += 1
+            done_connected = True                
+    
+    if not done_connected:
+        cid = 0  # assumption that its still connected
+        head = -5
+        count = 0
+        while count < size_0:
+            next = mem0[count]
+            if hasFluid[next] and not done[next]:
+                done[next] = True
+                if head==-5:
+                    head = next
+                    heads_arr[0] = next
+                else:
+                    next_elem_arr[end] = next
+                    next_elem_arr[next] = -5
+                end = next
+            count += 1
         
-        neighbours_updated[old_cid] = False
-        clusterID[curr] = cid
-        sizes[cid] += curr.size
-        connected[cid] = is_connected
-        trappedStatus[cid] = is_trapped
-        trapped_arr[curr] = is_trapped
-        if updateConnectivity: conn_arr[curr] = is_connected
-        
-        neighbours_updated[cid] = False
-        clusterPc[cid] = pc_val[i]
-
-        old_cid = old_cid[old_cid >= 0]
-        while old_cid.size > 0:
-            cid0 = old_cid[0]
-            cond = (old_cid == cid0)
-            sizes[cid0] -= cond.sum()
-            old_cid = old_cid[~cond]
-
     j = 0
     n = clusterID.size
-    for k in range(nClusters):
+    notdone = done
+    notdone[:] = False
+    for k in range(nClusters): 
         k_size = sizes[k]
         curr = heads_arr[k]
         mem_offsets[k] = j
-        if k_size==0: continue
-        while curr>0 and j<n:
-            members[j] = curr
-            curr = next_elem_arr[curr]
-            j += 1
-
-        if k==nClusters:
-            mem_offsets[k+1] = j
-
+        offset_start = j
+        if k_size==0 or curr==-5: continue
+        cid = clusterID[curr]
+        while curr>0 and (cid==k or k==0) and j<n:
+            next = next_elem_arr[curr]
+            if not notdone[curr] and cid==k:
+                members[j] = curr
+                j += 1
+                
+            elif j-offset_start==k_size: break
+            notdone[curr] = True
+            curr = next
+            cid = clusterID[curr]
+            
+    mem_offsets[k+1] = j
     members[j:] = -5
+
 
        
 
@@ -663,9 +755,6 @@ def filter_and_assign_clusters_batch(visited, cluster_sizes,
 
     return j
 
-        
-
-   
 
 @njit(cache=True)
 def doClustering_numba(ii, valid, done, connectivity_graph, cg_offsets, visited):
