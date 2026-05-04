@@ -12,10 +12,9 @@ from . import utilities as do
 
 
 class TwoPhaseImbibition:    
-    def __init__(self, obj, writeData=False, writeTrappedData=False, includeTrapping=True):
+    def __init__(self, obj, writeData=False, includeTrapping=True):
         obj.includeTrapping = includeTrapping
         obj.writeData = writeData
-        obj.writeTrappedData = writeTrappedData
         obj.results_dir = "quasi_static_results/"
         obj.results_str = ""
 
@@ -110,9 +109,7 @@ def imbibition(self):
         self.results_str += '\n\n'
         with open(self.file_name, 'a') as fQ:
             fQ.write(self.results_str)
-        if self.writeTrappedData:
-            do.__writeTrappedData__(self)
-
+    self.Pc = self.capPresMin
     print("Number of trapped elements: W: {}  NW:{}".format(
         self.cWP.trapped.sum(), self.cNWP.trapped.sum()))
     print('No of W clusters: {}, No of NW clusters: {}'.format(
@@ -123,6 +120,13 @@ def imbibition(self):
     print('===========================================================\n\n')
 
     print(f'no of pops: {self.pop}, no of updates: {self.update}')
+    print('Im done with imbibition !!!')
+    
+    if self.writeData:
+        os.makedirs(self.results_dir, exist_ok=True)
+        filename = os.path.join(self.results_dir, 
+            f"imbibition_{self.title}_{int(self.capPresMin)}.pkl")
+        do.saveState(self, filename)
     print('Im done with imbibition !!!')
         
     
@@ -177,7 +181,6 @@ def __PImbibition__(self):
     self.satW = do.Saturation(self, self.areaWPhase, self.areaSPhase)
     do.computePerm(self, self.capPresMin)
     self.results_str = do.writeResult(self, self.results_str, self.capPresMin)
-    
     
 
 def popUpdateWaterInj(self):

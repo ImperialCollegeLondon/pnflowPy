@@ -229,13 +229,11 @@ def __wettabilityDistribution__(self, conAng=None, shuffle=True, randNum=None) -
         sortedConAng = conAng[conAng.argsort()[::-1]]
         sortedPoreIndex = self.poreList[self.Rarray[self.poreList].argsort()[::-1]]
         contactAng[sortedPoreIndex] = sortedConAng
-        print('rmax')
         
     elif self.distModel.lower() == 'rmin':
         sortedConAng = conAng[conAng.argsort()[::-1]]
         sortedPoreIndex = self.poreList[self.Rarray[self.poreList].argsort()]
         contactAng[sortedPoreIndex] = sortedConAng
-        print('rmin')
         
     else:
         sortedPoreIndex = self.poreList.copy()
@@ -1082,16 +1080,8 @@ def __fileName__(self):
 
 def saveState(self, fname):
 
-    state_attrs = ['is_oil_inj', 'maxPc', 'wettClass', 'minthetai', 'maxthetai', 'delta', 'eta',
-                   'distModel', 'sepAng', 'results_dir', 'results_str', '_areaWP', '_cornArea', 
-                   '_areaNWP', '_centerArea', '_condWP', '_cornCond', '_condNWP', '_centerCond',
-                   'areaWPhase', 'areaNWPhase', 'gWPhase', 'gNWPhase', 'contactAng', 
-                   'thetaRecAng', 'thetaAdvAng', 'Fd_Tr', 'Fd_Sq', 'PistonPcRec', 'centreEPOilInj', 
-                   'pop', 'update', 'NinElemList', 'capPresMax', 'capPresMin', 'qW', 'qNW', 'krw', 'krnw',
-                   'totNumFill', 'prop_drainage', 'SwTarget', 'PcTarget', 'oldPcTarget', 'oldSatW', 'fillTarget',
-                   'invInsideBox', 'cnt', 'fw', 'rpd', 'satW', 'rng', 'm_cornExists', 
-                   'm_initOrMaxPcHist', 'm_initOrMinApexDistHist', 'm_initedApexDist', 'm_advPc', 'm_recPc', 
-                   'PcD',  'fluid', 'cWP', 'cycle', 'cNWP']
+    state_attrs = ['is_oil_inj', 'maxPc', 'Pc', 'wettClass', 'minthetai', 'maxthetai', 'delta', 
+                    'eta', 'distModel', 'sepAng', 'results_dir', 'results_str', '_areaWP', '_cornArea', '_areaNWP', '_centerArea', '_condWP', '_cornCond', '_condNWP', '_centerCond', 'areaWPhase', 'areaNWPhase', 'gWPhase', 'gNWPhase', 'contactAng', 'thetaRecAng', 'thetaAdvAng', 'Fd_Tr', 'Fd_Sq', 'PistonPcRec', 'centreEPOilInj', 'pop', 'update', 'NinElemList', 'capPresMax', 'capPresMin', 'qW', 'qNW', 'krw', 'krnw', 'totNumFill', 'prop_drainage', 'SwTarget', 'PcTarget', 'oldPcTarget', 'oldSatW', 'fillTarget', 'invInsideBox', 'cnt', 'fw', 'rpd', 'satW', 'rng', 'm_cornExists', 'm_initOrMaxPcHist', 'm_initOrMinApexDistHist', 'm_initedApexDist', 'm_advPc', 'm_recPc', 'PcD',  'fluid', 'cWP', 'cycle', 'cNWP']
 
     state = {attr: getattr(self, attr) for attr in state_attrs}
 
@@ -1101,5 +1091,3 @@ def saveState(self, fname):
             state[attr] = getattr(self, attr)
     
     joblib.dump(state, fname, compress=3)
-    
-        

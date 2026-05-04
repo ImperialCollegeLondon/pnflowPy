@@ -11,9 +11,8 @@ from .compat import Cluster
 
 
 class TwoPhaseDrainage:
-    def __init__(self, obj, writeData=False, writeTrappedData=False):
-        obj.writeData = writeData
-        obj.writeTrappedData = writeTrappedData    
+    def __init__(self, obj, writeData=False):
+        obj.writeData = writeData 
         obj.results_dir = "quasi_static_results/"
         obj.results_str = ""
 
@@ -97,7 +96,7 @@ def drainage(self):
                 self.satW < self.finalSat+0.00001):
             self.filling = False
             break
-
+        
         self.oldPcTarget = self.capPresMax
         self.PcTarget = min(self.maxPc+1e-7, self.PcTarget+(
             self.minDeltaPc+abs(self.PcTarget)*self.deltaPcFraction))
@@ -125,10 +124,8 @@ def drainage(self):
         self.results_str += '\n\n'
         with open(self.file_name, 'a') as fQ:
             fQ.write(self.results_str)
-        if self.writeTrappedData:
-            do.__writeTrappedData__(self)
-
-    self.maxPc = self.capPresMax
+                
+    self.Pc = self.maxPc = self.capPresMax
     self.rpd = self.sigma/self.maxPc
     print("Number of trapped elements: W: {}  NW:{}".format(
         self.cWP.trapped.sum(), self.cNWP.trapped.sum()))
@@ -141,13 +138,15 @@ def drainage(self):
     print('==========================================================\n\n')
     print(f'no of pops: {self.pop}, no of updates: {self.update}')
     
-    os.makedirs(self.results_dir, exist_ok=True)
-    filename = os.path.join(self.results_dir, f"drainage_{self.title}_{int(self.capPresMax)}.pkl")
-    do.saveState(self, filename)
+    if self.writeData:
+        os.makedirs(self.results_dir, exist_ok=True)
+        filename = os.path.join(self.results_dir, 
+            f"drainage_{self.title}_{int(self.capPresMax)}.pkl")
+        do.saveState(self, filename)
+
     print('Im done with drainage!!!')
 
     
-
 def __PDrainage__(self):
     warnings.simplefilter(action='ignore', category=RuntimeWarning)
     

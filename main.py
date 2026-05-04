@@ -24,6 +24,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 __DATE__ = date.today().strftime("%b") + " " + str(date.today().day) + ", " +\
       str(date.today().year)
 
+MEMORY_DIR = f"quasi_static_results/"
 
 def main():
     try:
@@ -44,93 +45,86 @@ def main():
         sPhase.singlephase(netsim)
       
         writeData = True
-        writeTrappedData = False
         fillTillNWDisconnected = True
-        saveDrainage = False
-        saveImbibition = True
         skip_drainage = False
         skip_imbibition = False
-        MEMORY_DIR = f"quasi_static_results/"
-
+        
+        state_data = input_data.loadState()
+        if state_data[0]=='T':
+            file_path = state_data[1]
+            try:
+                loaded_obj = joblib.load(file_path)
+                netsim.satW = loaded_obj['satW']
+            except Exception as exc:
+                print("\n\n Exception on processing of loaded state: \n", exc, "Aborting!\n")
+                return 1
         # two Phase simulations
         if input_data.satControl():
             firstDrainCycle = True
             firstImbCycle = True
+            firstCycle = True
             netsim.cycle = 0
-            netsim.saveDrainage = saveDrainage
-            netsim.saveImbibition = saveImbibition
+            
             for j in range(len(input_data.satControl())):
                 netsim.finalSat, Pc, netsim.dSw, netsim.minDeltaPc,\
-                 netsim.deltaPcFraction, netsim.calcKr, netsim.calcI,\
-                 netsim.InjectFromLeft, netsim.InjectFromRight,\
-                 netsim.EscapeFromLeft, netsim.EscapeFromRight =\
-                 input_data.satControl()[j]
+                    netsim.deltaPcFraction, netsim.calcKr, netsim.calcI,\
+                    netsim.InjectFromLeft, netsim.InjectFromRight,\
+                    netsim.EscapeFromLeft, netsim.EscapeFromRight =\
+                    input_data.satControl()[j]
                 netsim.filling = True
                 
                 if netsim.finalSat < netsim.satW:
                     # Drainage process
-                    if skip_drainage:
-                        file_path = os.path.join(MEMORY_DIR, f"drainage_{netsim.title}_99999.pkl")
-                        loaded_obj = joblib.load(file_path)
-                        do.updateObj(netsim, loaded_obj)
-                        write_drainage_result(netsim)
-                        
-                        netsim.areaWPhase = netsim._areaWP.view()
-                        netsim.areaNWPhase = netsim._areaNWP.view()
-                        netsim.gWPhase = netsim._condWP.view()
-                        netsim.gNWPhase = netsim._condNWP.view()
-                        
+                    netsim.is_oil_inj = True
+                    if firstDrainCycle:
+                        (netsim.wettClass, netsim.minthetai, netsim.maxthetai, 
+                            netsim.delta, netsim.eta, netsim.distModel,
+                            netsim.sepAng, netsim.CAFile) = input_data.initConAng('INIT_CONT_ANG')
+                        PDrainage(netsim, writeData=writeData)
+
+                        tPhaseD.initialize(netsim)
+                        netsim.prop_drainage = {}
+                        netsim.prop_drainage['contactAng'] = netsim.contactAng.copy()
+                        netsim.prop_drainage['thetaRecAng'] = netsim.thetaRecAng.copy()
+                        netsim.prop_drainage['thetaAdvAng'] = netsim.thetaAdvAng.copy()
+                        firstDrainCycle = False
                     else:
-                        netsim.is_oil_inj = True
-                        netsim.maxPc = Pc
-                        if firstDrainCycle:
-                            (netsim.wettClass, netsim.minthetai, netsim.maxthetai, netsim.delta,
-                                netsim.eta, netsim.distModel, netsim.sepAng, netsim.CAFile) = input_data.initConAng('INIT_CONT_ANG')
-                            PDrainage(netsim, writeData=writeData,              
-                                writeTrappedData=writeTrappedData)
+                        SecDrainage(netsim, writeData=writeData)
 
-                            tPhaseD.initialize(netsim)
-                            netsim.prop_drainage = {}
-                            netsim.prop_drainage['contactAng'] = netsim.contactAng.copy()
-                            netsim.prop_drainage['thetaRecAng'] = netsim.thetaRecAng.copy()
-                            netsim.prop_drainage['thetaAdvAng'] = netsim.thetaAdvAng.copy()
-                        else:
-                            SecDrainage(netsim, writeData=writeData, writeTrappedData=writeTrappedData)
+                    if firstCycle and state_data[0]=='T':
+                        do.updateObj(netsim, loaded_obj)                        
+                        netsim.capPresMax = netsim.Pc
+                        
+                    netsim.maxPc = Pc        
+                    tPhaseD.drainage(netsim)
                     
-                        tPhaseD.drainage(netsim)
-                    firstDrainCycle = False
-
                 else:
                     # Imbibition process
-                    if skip_imbibition:
-                        with open(os.path.join(
-                            MEMORY_DIR, f"imbibition_{netsim.title}_3143.pkl"), "rb") as f:
-                            loaded_obj = dill.load(f)
-                        do.updateObj(netsim, loaded_obj)
-                        write_imbibition_result(netsim)
-                        
+                                     
+                    netsim.is_oil_inj = False
+                 
+                    if firstImbCycle:
+                        (netsim.wettClass, netsim.minthetai, netsim.maxthetai, netsim.delta,
+                            netsim.eta, netsim.distModel, netsim.sepAng, netsim.CAFile) = input_data.initConAng('EQUIL_CON_ANG')
+                                
+                        PImbibition(netsim, writeData=writeData)
+                        tPhaseImb.initialize(netsim)
+                        netsim.prop_imbibition = {}
+                        netsim.prop_imbibition['contactAng'] = netsim.contactAng.copy()
+                        netsim.prop_imbibition['thetaRecAng'] = netsim.thetaRecAng.copy()
+                        netsim.prop_imbibition['thetaAdvAng'] = netsim.thetaAdvAng.copy()
+                        firstImbCycle = False
                     else:
-                        netsim.is_oil_inj = False
-                        netsim.minPc = Pc
-                        netsim.fillTillNWDisconnected = fillTillNWDisconnected
-                        
-                        if firstImbCycle:
-                            (netsim.wettClass, netsim.minthetai, netsim.maxthetai, netsim.delta,
-                                netsim.eta, netsim.distModel, netsim.sepAng, netsim.CAFile) = input_data.initConAng(
-                                    'EQUIL_CON_ANG')
-                                    
-                            PImbibition(netsim, writeData=writeData, writeTrappedData=writeTrappedData)
-                            tPhaseImb.initialize(netsim)
-                            netsim.prop_imbibition = {}
-                            netsim.prop_imbibition['contactAng'] = netsim.contactAng.copy()
-                            netsim.prop_imbibition['thetaRecAng'] = netsim.thetaRecAng.copy()
-                            netsim.prop_imbibition['thetaAdvAng'] = netsim.thetaAdvAng.copy()
-                            firstImbCycle = False
-                        else:
-                            SecImbibition(netsim, writeData=writeData,writeTrappedData=writeTrappedData)
-                        
-                        tPhaseImb.imbibition(netsim)
+                        SecImbibition(netsim, writeData=writeData)
 
+                    if firstCycle and state_data[0]=='T':
+                        do.updateObj(netsim, loaded_obj)                        
+                        netsim.capPresMin = netsim.Pc
+                        
+                    netsim.minPc = Pc
+                    netsim.fillTillNWDisconnected = fillTillNWDisconnected
+                    tPhaseImb.imbibition(netsim)
+                firstCycle = False
         else:
             pass
     except Exception as exc:
@@ -142,7 +136,16 @@ def main():
 
     return 0
 
-
+def load_file(file_path, netsim):
+    try:
+        loaded_obj = joblib.load(file_path)
+        do.updateObj(netsim, loaded_obj)
+        write_drainage_result(netsim)
+        return 0
+    except Exception as exc:
+        print("\n\n Exception on processing of loaded state: \n", exc, "Aborting!\n")
+        return 1
+        
 def write_drainage_result(self):
     print('----------------------------------------------------------------------------------')
     print('---------------------------------Two Phase Drainage Cycle {}---------------------'.format(self.cycle))

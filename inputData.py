@@ -61,6 +61,12 @@ class InputData:
         else:
             return [0.5, 1.0]
 
+    def loadState(self):
+        try:
+            return self.data['LOAD_INIT_STATE']
+        except KeyError:
+            return ['F']
+    
     def satControl(self):
         if self.data["SAT_CONTROL"]:
             if len(self.data["SAT_CONTROL"]) % 11 == 0:
