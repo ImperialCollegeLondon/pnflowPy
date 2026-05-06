@@ -46,8 +46,8 @@ def main():
       
         writeData = True
         fillTillNWDisconnected = True
-        skip_drainage = False
-        skip_imbibition = False
+        #skip_drainage = False
+        #skip_imbibition = False
         
         state_data = input_data.loadState()
         if state_data[0]=='T':
