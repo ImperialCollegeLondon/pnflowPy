@@ -7,9 +7,8 @@ from . import tPhaseD
 from . import tPhaseImb
 
 class SecDrainage:
-    def __init__(self, obj, writeData=False, writeTrappedData=True):
+    def __init__(self, obj, writeData=False):
         obj.writeData = writeData
-        obj.writeTrappedData = writeTrappedData
         tPhaseD.popUpdateOilInj = popUpdateOilInj
 
         obj.fluid[[-1, 0]] = 1, 0
@@ -95,10 +94,9 @@ def populateToFill(self, arr):
 
 
 class SecImbibition:
-    def __init__(self, obj, writeData=False, writeTrappedData=True):
+    def __init__(self, obj, writeData=False):
         obj.writeData = writeData
-        obj.writeTrappedData = writeTrappedData
-  
+        
         obj.fluid[[-1, 0]] = 0, 1
         obj.ElemToFill = SortedList(key=lambda i: tPhaseImb.LookupList(i, obj.PcI, obj.nPores))
         obj.capPresMin = obj.maxPc

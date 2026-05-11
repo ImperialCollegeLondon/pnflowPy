@@ -107,13 +107,7 @@ class Cluster():
         self.trappedStatus.resize(newSize)
         self.connected.resize(newSize)
         self.neighbours_updated.resize(newSize)
-
-        try:
-            self.sizes.resize(newSize)
-        except ValueError:
-            #print('resizing failied')
-            #from IPython import embed; embed()
-            self.sizes.resize(newSize, refcheck=False)
+        self.sizes = np.concatenate([self.sizes, np.zeros(size, dtype=np.int32)])
         
         self._neighbours.extend([[] for _ in range(size)])
         for c in np.arange(oldSize, newSize):
@@ -167,7 +161,7 @@ class Cluster():
         self.flowrate = compute_qp_numba(
             ntwk.P1array, ntwk.P2array, ntwk.tList, self.gL, ntwk.nThroats, pres, ntwk.poreList, 
             c, conn, ntwk.isOnInletBdr, vector_mode, ntwk.is_conTToInletBdr.copy(), 
-                ntwk.is_conTToOutletBdr.copy(), self.flow_vec, self.flow_dir)
+            ntwk.is_conTToOutletBdr.copy(), self.flow_vec, self.flow_dir)
     def doClustering(self, arr, pc_val, updateCluster=False, updateConnectivity=False,  
         updatePcClustConToExit=True):
         if arr.size==0: return
@@ -317,6 +311,7 @@ def compute_gL_numba(P1array, P2array, tList, LP1, LP2, LT, g, nThroats, gL):
         gT  = g[tList[i]]
         gP1 = g[P1array[i]]
         gP2 = g[P2array[i]]
+        gL[i] = 0.0
 
         if (gT > 0.0) and ((gP1>0) or (P1array[i]<1)) and ((gP2>0) or (P2array[i]<1)):
             if (gP1 > 0) and (gP2 > 0):

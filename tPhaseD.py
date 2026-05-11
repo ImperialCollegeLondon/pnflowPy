@@ -107,7 +107,7 @@ def drainage(self):
             self.filling = False
             self.cnt, self.totNumFill = 0, 0
 
-            while (self.PcTarget < self.maxPc-1e-8) and (self.satW>self.finalSat):
+            while (self.PcTarget < self.maxPc+1e-7) and (self.satW>self.finalSat):
                 __CondTP_Drainage__(self)
                 self.satW = do.Saturation(self, self.areaWPhase, self.areaSPhase)
                 do.computePerm(self, self.capPresMax)

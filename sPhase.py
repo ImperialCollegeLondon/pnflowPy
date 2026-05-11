@@ -35,7 +35,6 @@ def singlephase(self):
     '''determine the single phase parameters'''
     print('------------------------------------------------------------------')
     print('---------------------------Single Phase---------------------------')
-    print('&&&&&&&&&&&&&&&&&&&&&&&')
     Computations(self)
     self.fluid = np.zeros(self.totElements, dtype=np.int32)
     self.fluid[-1] = 1   # already filled  

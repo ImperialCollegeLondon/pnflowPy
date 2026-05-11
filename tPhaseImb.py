@@ -144,8 +144,7 @@ def __PImbibition__(self):
                 self.PcI[self.ElemToFill[0]] >= self.PcTarget):
 
             mem = self.cNWP[0].members
-            if (not self.fillTillNWDisconnected) or (
-                self.toInBdr[mem].any() and self.toOutBdr[mem].any()):
+           if not self.fillTillNWDisconnected or (mem.size>0 and not self.cNWP.trappedStatus[0]):
                 popUpdateWaterInj(self)
                 if not self.filling:  # remove later
                     return
@@ -194,7 +193,7 @@ def popUpdateWaterInj(self):
         self.cWP.fill_with_phase(k, self.capPresMin, self)
         self.cNWP.unfill_phase(k, self.capPresMin)        
         neigh = self.connectivity_graph[k]
-        cond = (self.cNWP.hasFluid[neigh] & ~self.cNWP.trapped[neigh])
+        cond = (self.cNWP.hasFluid[neigh]) 
         neigh = neigh[cond.astype(np.bool_)]
         if neigh.size>0:
             __computePc__(self, self.capPresMin, neigh, trapping=self.includeTrapping)
@@ -222,7 +221,7 @@ def __computePistonPc__(self):
     condb = (self.fluid == 1) & (self.Garray < self.bndG2)  #polygons filled with w
     condc = (self.fluid == 1) & (self.Garray >= self.bndG2) #circles filled with nw
     condac = (conda | condc)
-    condac[[-1,0]] = False
+    condac[0] = False
 
     self.PistonPcAdv[condac] = 2.0*self.sigma*self.cosThetaAdvAng[condac]/self.Rarray[condac]
     conda = conda & (self.maxPc<self.PistonPcRec)
@@ -256,7 +255,8 @@ def __PistonPcHing__(self, arrr, accurate=True, overidetrapping=True):
   
     arrrT = self.isTriangle & arrr
     arrrS = self.isSquare & arrr
-    initialPc = np.divide(1.1*self.sigma*2.0*self.cosThetaAdvAng, self.Rarray, where=(self.Rarray!=0.0))
+    initialPc = np.divide(1.1*self.sigma*2.0*self.cosThetaAdvAng, 
+                        self.Rarray, where=(self.Rarray!=0.0))
     delta = 0.0 if accurate else self._delta
 
     if np.any(arrrT):        
@@ -317,7 +317,7 @@ def LookupList(k, PcI, nPores):
 def __computePc__(self, Pc, arr, update=True, trapping=True):
     entryPc = self.PistonPcAdv.copy()
     maxNeiPistonPrs = np.zeros(self.totElements, dtype=np.float32)
-    _arr = arr[self.cNWP.hasFluid[arr].astype(np.bool_)] # elements filled with nw
+    _arr = arr[self.cNWP.hasFluid[arr]] # elements filled with nw
     arrP = _arr[(_arr <= self.nPores)]   #pores filled with nw
     arrT = _arr[(_arr > self.nPores)]      #throats filled with nw
 
@@ -338,9 +338,9 @@ def __computePc__(self, Pc, arr, update=True, trapping=True):
     if arrT.size>0:
         ''' update the piston-like entry Pc '''
         _arrT = arrT-self.nPores
+        neigh = self.TPConnections[_arrT]
         maxNeiPistonPrs[arrT] = np.max(
-            self.PistonPcAdv[self.TPConnections[_arrT]], axis=1, initial=0.0,
-            where=(hasOnlyWFluid[self.TPConnections[_arrT]]))
+            self.PistonPcAdv[neigh], axis=1, initial=0.0, where=(hasOnlyWFluid[neigh]))
         
     condb = (maxNeiPistonPrs > 0.0)
     entryPc[condb] = np.minimum(0.999*maxNeiPistonPrs[
@@ -355,6 +355,10 @@ def __computePc__(self, Pc, arr, update=True, trapping=True):
     ''' update the toFill list '''
     if update:
         ''' update PcI '''   
+        elemNotInToFill = np.flatnonzero(self.NWElemNotInToFill)
+        to_add = __func4(self, elemNotInToFill, trapping)
+        if to_add.size>0:
+            self.ElemToFill.update(to_add)
         diff = (self.PcI[_arr]!=entryPc[_arr])
         changed = diff&(~self.NWElemNotInToFill[_arr])
         for i in _arr[changed]: self.ElemToFill.discard(i)
