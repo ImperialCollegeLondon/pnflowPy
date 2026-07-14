@@ -41,7 +41,7 @@ class SecDrainage:
         obj.gWPhase = obj._cornCond.view()
         obj.gNWPhase = obj._centerCond.view()     
         obj.cycle += 1
-        
+
         obj.results_dir = "quasi_static_results/"
         obj.results_str = ""
         if obj.writeData: do.__fileName__(obj)
@@ -96,7 +96,6 @@ def populateToFill(self, arr):
 class SecImbibition:
     def __init__(self, obj, writeData=False):
         obj.writeData = writeData
-        
         obj.fluid[[-1, 0]] = 0, 1
         obj.ElemToFill = SortedList(key=lambda i: tPhaseImb.LookupList(i, obj.PcI, obj.nPores))
         obj.capPresMin = obj.maxPc

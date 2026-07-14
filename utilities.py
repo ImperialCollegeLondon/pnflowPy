@@ -246,7 +246,7 @@ def __wettabilityDistribution__(self, conAng=None, shuffle=True, randNum=None) -
         randNum = self.rand(self.nThroats)
 
     if self.CAFile:
-        contactAng = np.loadtxt(os.path.join('data', self.CAFile + '.dat'), dtype=np.float32)
+        contactAng = np.loadtxt(os.path.join(self.data_dir, self.CAFile + '.dat'), dtype=np.float32)
         contactAng[[0, -1]] = 0.0
     else:
         conda = (self.P1array > 0)

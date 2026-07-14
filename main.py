@@ -1,7 +1,6 @@
 from datetime import date
 import sys
 import os
-
 import dill
 import joblib
 
@@ -23,7 +22,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # __DATE__ = "Jul 25 , 2023"
 __DATE__ = date.today().strftime("%b") + " " + str(date.today().day) + ", " +\
       str(date.today().year)
-
 MEMORY_DIR = f"quasi_static_results/"
 
 def main():
@@ -43,13 +41,11 @@ def main():
         # Single Phase computation
         sPhase.initialize(netsim)
         sPhase.singlephase(netsim)
-      
+
         writeData = True
         fillTillNWDisconnected = True
-        #skip_drainage = False
-        #skip_imbibition = False
         
-        state_data = input_data.loadState()
+        state_data = input_data.loadState('LOAD_INIT_NETWORK_STATE')
         if state_data[0]=='T':
             file_path = state_data[1]
             try:
@@ -58,6 +54,7 @@ def main():
             except Exception as exc:
                 print("\n\n Exception on processing of loaded state: \n", exc, "Aborting!\n")
                 return 1
+        
         # two Phase simulations
         if input_data.satControl():
             firstDrainCycle = True
@@ -72,7 +69,7 @@ def main():
                     netsim.EscapeFromLeft, netsim.EscapeFromRight =\
                     input_data.satControl()[j]
                 netsim.filling = True
-                
+
                 if netsim.finalSat < netsim.satW:
                     # Drainage process
                     netsim.is_oil_inj = True
@@ -91,18 +88,18 @@ def main():
                     else:
                         SecDrainage(netsim, writeData=writeData)
 
+
                     if firstCycle and state_data[0]=='T':
                         do.updateObj(netsim, loaded_obj)                        
                         netsim.capPresMax = netsim.Pc
                         
-                    netsim.maxPc = Pc        
+                    netsim.maxPc = Pc
                     tPhaseD.drainage(netsim)
-                    
+
                 else:
                     # Imbibition process
-                                     
                     netsim.is_oil_inj = False
-                 
+
                     if firstImbCycle:
                         (netsim.wettClass, netsim.minthetai, netsim.maxthetai, netsim.delta,
                             netsim.eta, netsim.distModel, netsim.sepAng, netsim.CAFile) = input_data.initConAng('EQUIL_CON_ANG')
@@ -117,6 +114,7 @@ def main():
                     else:
                         SecImbibition(netsim, writeData=writeData)
 
+
                     if firstCycle and state_data[0]=='T':
                         do.updateObj(netsim, loaded_obj)                        
                         netsim.capPresMin = netsim.Pc
@@ -124,9 +122,9 @@ def main():
                     netsim.minPc = Pc
                     netsim.fillTillNWDisconnected = fillTillNWDisconnected
                     tPhaseImb.imbibition(netsim)
+
                 firstCycle = False
-        else:
-            pass
+
     except Exception as exc:
         print("\n\n Exception on processing: \n", exc, "Aborting!\n")
         return 1
@@ -135,6 +133,7 @@ def main():
         return 1
 
     return 0
+
 
 def load_file(file_path, netsim):
     try:
@@ -145,7 +144,8 @@ def load_file(file_path, netsim):
     except Exception as exc:
         print("\n\n Exception on processing of loaded state: \n", exc, "Aborting!\n")
         return 1
-        
+
+
 def write_drainage_result(self):
     print('----------------------------------------------------------------------------------')
     print('---------------------------------Two Phase Drainage Cycle {}---------------------'.format(self.cycle))

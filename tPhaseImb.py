@@ -118,9 +118,8 @@ def imbibition(self):
     
     print('Time spent for the imbibition process: ', time() - start)
     print('===========================================================\n\n')
-
     print(f'no of pops: {self.pop}, no of updates: {self.update}')
-    print('Im done with imbibition !!!')
+    
     
     if self.writeData:
         os.makedirs(self.results_dir, exist_ok=True)
@@ -144,7 +143,7 @@ def __PImbibition__(self):
                 self.PcI[self.ElemToFill[0]] >= self.PcTarget):
 
             mem = self.cNWP[0].members
-           if not self.fillTillNWDisconnected or (mem.size>0 and not self.cNWP.trappedStatus[0]):
+            if not self.fillTillNWDisconnected or (mem.size>0 and not self.cNWP.trappedStatus[0]):
                 popUpdateWaterInj(self)
                 if not self.filling:  # remove later
                     return
@@ -246,7 +245,7 @@ def __computePistonPc__(self):
         self.thetaAdvAng[self.elemTriangle] <= np.pi/2+self.halfAnglesTr[:, 0])
     self.PistonPcAdv[conde] = 2.0*self.sigma*self.cosThetaAdvAng[conde]/self.Rarray[conde]
     
-    condf = condb & (~condd) & (~conde) 
+    condf = condb & (~condd) & (~conde)
     self.PistonPcAdv[condf] = 2.0*self.sigma*self.cosThetaAdvAng[condf]/self.Rarray[condf]
     
 
@@ -302,7 +301,7 @@ def __computeSnapoffPc__(self):
 def __updateSnapoffPc__(self, Pc: float):
     ''' update entry capillary pressure for Snap-off filling '''
     arrrTr = (self.fluid[self.elemTriangle] == 1)
-    thetaHi = np.arccos(self._thetaHi_a[arrrTr]*Pc/self.maxPc)
+    thetaHi = np.arccos(np.clip(self._thetaHi_a[arrrTr]*Pc/self.maxPc), -1.0, 1.0)
     snapoffPc2 = self._snapoffPc2a[arrrTr]*(
         self._snapoffPc2num[arrrTr]+np.cos(thetaHi[:, 2])*self.cotBetaTr[arrrTr, 2]
         - np.sin(thetaHi[:, 2]))

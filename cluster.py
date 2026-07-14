@@ -1,14 +1,9 @@
 import numpy as np
-from sortedcontainers import SortedList
-from numba import njit, prange, jit
+from numba import njit, prange
 from numba.types import int32, float32, boolean, void, Tuple, int64, float64
-from numba.typed import Dict
 import pnflowPy.temp as temp
 import pnflowPy.utilities as do
 from scipy.sparse import csr_matrix
-from time import time
-import os
-from IPython import embed
 
 _temp = temp.TempArrays()
 
@@ -108,7 +103,6 @@ class Cluster():
         self.connected.resize(newSize)
         self.neighbours_updated.resize(newSize)
         self.sizes = np.concatenate([self.sizes, np.zeros(size, dtype=np.int32)])
-        
         self._neighbours.extend([[] for _ in range(size)])
         for c in np.arange(oldSize, newSize):
             self[c] = {'key': c, 'parent':self.network}
@@ -162,7 +156,9 @@ class Cluster():
             ntwk.P1array, ntwk.P2array, ntwk.tList, self.gL, ntwk.nThroats, pres, ntwk.poreList, 
             c, conn, ntwk.isOnInletBdr, vector_mode, ntwk.is_conTToInletBdr.copy(), 
             ntwk.is_conTToOutletBdr.copy(), self.flow_vec, self.flow_dir)
-    def doClustering(self, arr, pc_val, updateCluster=False, updateConnectivity=False,  
+
+    
+    def doClustering(self, arr, pc_val, updateCluster=False, updateConnectivity=False, 
         updatePcClustConToExit=True):
         if arr.size==0: return
         ntwk = self.network
@@ -172,6 +168,8 @@ class Cluster():
         if np.ndim(pc_val) == 0:
             pc_val = np.full(arr.size, pc_val, dtype=np.float32)
         self.doClusteringAssigning(arr, pc_val, temp_clusterID, updateConnectivity, ntwk)
+
+
     def doClusteringAssigning(self, arr, pc_val, temp_clusterID, updateConnectivity, ntwk):
         start_index = 0
         elem_arr = np.zeros(ntwk.totElements, dtype=np.int32)
@@ -179,14 +177,18 @@ class Cluster():
         elem_offset = np.zeros(nRoots+1, dtype=np.int32)
         is_connected_arr = np.zeros(nRoots, dtype=np.bool_)
         is_trapped_arr = np.ones(nRoots, dtype=np.bool_)
+
         while True:
-            status, start_index = parallel_exploration_dsu_with_assigning(arr, pc_val, 
-                elem_arr, elem_offset, self.hasFluid, ntwk.connectivity_graph_flat, 
-                ntwk.cg_offsets, self.sizes, self.clusterID, self.pc, temp_clusterID, ntwk.toInlet, ntwk.toOutlet, ntwk.toInBdr, ntwk.toOutBdr, _temp.done, _temp.visited, 
-                self.members, self.mem_offsets, self.heads_arr, self.next_elem_arr, 
-                self.trapped, self.trappedStatus, self.conn, self.connected,
-                self.neighbours_updated, is_connected_arr, is_trapped_arr, updateConnectivity, start_index)
+            status, start_index = parallel_exploration_dsu_with_assigning(arr, pc_val,
+                elem_arr, elem_offset, self.hasFluid, ntwk.connectivity_graph_flat,
+                ntwk.cg_offsets, self.sizes, self.clusterID, self.pc, temp_clusterID,
+                ntwk.toInlet, ntwk.toOutlet, ntwk.toInBdr, ntwk.toOutBdr,
+                _temp.done, _temp.visited, self.members, self.mem_offsets,
+                self.heads_arr, self.next_elem_arr, self.trapped, self.trappedStatus,
+                self.conn, self.connected, self.neighbours_updated,
+                is_connected_arr, is_trapped_arr, updateConnectivity, start_index)
             if status==0: break
+
             needed = np.unique(temp_clusterID[arr[start_index:]]).size
             needed = max(int(np.ceil(ntwk.totElements/5000)*100), int(np.ceil(needed/100)*100))
             self.resizeClusters(needed)
@@ -519,7 +521,9 @@ def parallel_exploration_dsu_with_assigning(arr, pc_val, elem_arr, elem_offset, 
 
             is_connected_arr[i] = has_inB and has_outB
             is_trapped_arr[i] = not (has_in or has_out)
+
         done[elem_arr[:m]] = True
+
     mem0 = members[mem_offsets[0]:mem_offsets[1]]
     size_0 = mem0.size
     done_connected = False
@@ -623,7 +627,6 @@ def parallel_exploration_dsu_with_assigning(arr, pc_val, elem_arr, elem_offset, 
     members[j:] = -5
     
     return 0, nRoots
-    
 
 @njit(parallel=True, cache=True)
 def doClustering_numba_parallel(arr, valid, connectivity_graph, cg_offsets, totElements):

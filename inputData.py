@@ -60,13 +60,13 @@ class InputData:
             return self.data['CALC_BOX']
         else:
             return [0.5, 1.0]
-
-    def loadState(self):
+    
+    def loadState(self, case):
         try:
-            return self.data['LOAD_INIT_STATE']
+            return self.data[case]
         except KeyError:
             return ['F']
-    
+
     def satControl(self):
         if self.data["SAT_CONTROL"]:
             if len(self.data["SAT_CONTROL"]) % 11 == 0:
@@ -125,11 +125,10 @@ class InputData:
                 CAFile = data[7]
             except IndexError:
                 CAFile = None
-
         else:
             print('\nError: Both keyword INIT_CONT_ANG and EQUIL_CON_ANG are \
                   missing!')
-        
+
         return wettClass, minAng, maxAng, delta, eta, distModel, sepAng, CAFile
         
     def res_format(self):

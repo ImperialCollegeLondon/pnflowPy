@@ -12,7 +12,7 @@ from .compat import Cluster
 
 class TwoPhaseDrainage:
     def __init__(self, obj, writeData=False):
-        obj.writeData = writeData 
+        obj.writeData = writeData
         obj.results_dir = "quasi_static_results/"
         obj.results_str = ""
 
@@ -113,7 +113,7 @@ def drainage(self):
                 do.computePerm(self, self.capPresMax)
                 self.results_str = do.writeResult(self, self.results_str, self.capPresMax)
 
-                self.PcTarget = min(self.maxPc-1e-7, self.PcTarget+(
+                self.PcTarget = min(self.maxPc+1e-7, self.PcTarget+(
                     self.minDeltaPc+abs(self.PcTarget)*self.deltaPcFraction))
                 if self.capPresMax == self.PcTarget: break
                 else: self.capPresMax = self.PcTarget
