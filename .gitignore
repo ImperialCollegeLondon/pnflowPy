@@ -1,0 +1,68 @@
+# --- Python Specific ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# --- Python Bytecode ---
+*.pyc
+
+# --- Numba Specific ---
+# Numba caches compiled functions here if enabled
+__pycache__/
+.numba_cache/
+
+# --- C++ / Compiled Binaries ---
+*.out
+*.exe
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+# Build directories for CMake or Make
+Makefile
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install/
+
+# --- WSL2 / Linux / Windows OS Specific ---
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+
+# --- VS Code Specific ---
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# --- Environment/Secrets ---
+.env
+.venv
+venv/
+ENV/

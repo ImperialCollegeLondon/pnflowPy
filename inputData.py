@@ -60,6 +60,12 @@ class InputData:
             return self.data['CALC_BOX']
         else:
             return [0.5, 1.0]
+    
+    def loadState(self, case):
+        try:
+            return self.data[case]
+        except KeyError:
+            return ['F']
 
     def satControl(self):
         if self.data["SAT_CONTROL"]:
@@ -100,6 +106,10 @@ class InputData:
             except ValueError:
                 distModel = 'rand'
                 sepAng = 25.2*np.arccos(-1.0)/180
+            try:
+                CAFile = data[7]
+            except IndexError:
+                CAFile = None
         elif case == 'EQUIL_CON_ANG':
             data = np.array(self.data['EQUIL_CON_ANG'])
             wettClass = data[0].astype('int')
@@ -111,11 +121,15 @@ class InputData:
             except ValueError:
                 distModel = 'rand'
                 sepAng = 25.2*np.arccos(-1.0)/180
+            try:
+                CAFile = data[7]
+            except IndexError:
+                CAFile = None
         else:
             print('\nError: Both keyword INIT_CONT_ANG and EQUIL_CON_ANG are \
                   missing!')
-        
-        return wettClass, minAng, maxAng, delta, eta, distModel, sepAng
+
+        return wettClass, minAng, maxAng, delta, eta, distModel, sepAng, CAFile
         
     def res_format(self):
         if self.data["RES_FORMAT"]:
@@ -152,6 +166,14 @@ class InputData:
 
         return intfac_ten, wat_visc, oil_visc, wat_resist, oil_resist, \
             wat_dens, oil_dens
+    
+    def poreFillWgt(self):
+        try:
+            weights = self.data["PORE_FILL_WGT"]
+        except KeyError:
+            weights = [0.0, 15000.0, 15000.0, 15000.0, 15000.0, 15000.0]
+        
+        return weights
 
     def relPermDef(self):
         data = input("REL_PERM_DEF: ")
@@ -209,15 +231,7 @@ class InputData:
 
         return [eps, scaleFact, slvrOutput, verbose, condCutOff]
 
-    def poreFillWgt(self):
-        data = input("PORE_FILL_WGT: ")
-        if data.strip():
-            # Process the data as needed
-            pass
-        else:
-            weights = [0.0, 15000.0, 15000.0, 15000.0, 15000.0, 15000.0]
-        
-        return weights
+    
 
     def poreFillAlg(self):
         data = input("PORE_FILL_ALG: ")
