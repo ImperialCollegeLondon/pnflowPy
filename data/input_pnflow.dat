@@ -4,7 +4,7 @@ TITLE  Bentheimer ;  % base name for the output files
 
 NETWORK   F Bentheimer ;   % the base name for of the network file, without _link1.dat, _link2, _pore1
 
-%			load_from_a_file path_to_file ; 			% if true, simulation will commence from this state, network_state should be .pkl file
+%	load_from_a_file path_to_file ; 			% if true, simulation will commence from this state, network_state should be .pkl file
 %LOAD_INIT_NETWORK_STATE		T		path/to/the/network/state/pkl/file ;
 %LOAD_INIT_RIPENING_STATE		T		path/to/the/network/ripening/state/pkl/file;
 
