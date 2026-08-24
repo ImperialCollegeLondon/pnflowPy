@@ -166,6 +166,14 @@ class InputData:
 
         return intfac_ten, wat_visc, oil_visc, wat_resist, oil_resist, \
             wat_dens, oil_dens
+    
+    def poreFillWgt(self):
+        try:
+            weights = self.data["PORE_FILL_WGT"]
+        except KeyError:
+            weights = [0.0, 15000.0, 15000.0, 15000.0, 15000.0, 15000.0]
+        
+        return weights
 
     def relPermDef(self):
         data = input("REL_PERM_DEF: ")
@@ -223,15 +231,7 @@ class InputData:
 
         return [eps, scaleFact, slvrOutput, verbose, condCutOff]
 
-    def poreFillWgt(self):
-        data = input("PORE_FILL_WGT: ")
-        if data.strip():
-            # Process the data as needed
-            pass
-        else:
-            weights = [0.0, 15000.0, 15000.0, 15000.0, 15000.0, 15000.0]
-        
-        return weights
+    
 
     def poreFillAlg(self):
         data = input("PORE_FILL_ALG: ")

@@ -301,7 +301,7 @@ def __computeSnapoffPc__(self):
 def __updateSnapoffPc__(self, Pc: float):
     ''' update entry capillary pressure for Snap-off filling '''
     arrrTr = (self.fluid[self.elemTriangle] == 1)
-    thetaHi = np.arccos(np.clip(self._thetaHi_a[arrrTr]*Pc/self.maxPc), -1.0, 1.0)
+    thetaHi = np.arccos(np.clip(self._thetaHi_a[arrrTr]*Pc/self.maxPc, -1.0, 1.0))
     snapoffPc2 = self._snapoffPc2a[arrrTr]*(
         self._snapoffPc2num[arrrTr]+np.cos(thetaHi[:, 2])*self.cotBetaTr[arrrTr, 2]
         - np.sin(thetaHi[:, 2]))
@@ -408,8 +408,9 @@ def __porebodyFilling__(self, ind):
         arr = self.PTConnections[ind]
         cond = (self.fluid[arr]==1)&self.PTValid[ind]  
         arr2 = np.sort(np.where(cond, self.randNum[arr], np.nan))[:, :6]
+       
         cond1 = (arr2!=np.nanmax(arr2, axis=1, initial=0.0)[:,np.newaxis])&(~np.isnan(arr2))
-        sumrand = np.sum(arr2, where=cond1, axis=1)*15000
+        sumrand = np.sum(arr2*self.weights, where=cond1, axis=1)
 
         #Blunt2
         self.porebodyPc[ind] = self.sigma*(

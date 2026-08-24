@@ -817,9 +817,9 @@ def update_areas_conductances(self, arrr, Pc_values, accurate, updateArea, overi
         self.thetaAdvAng, self.thetaRecAng, self.nCorners_arr, cWP.trapped, cWP.clusterID, 
         cWP.pc, cNWP.trapped, cNWP.clusterID, cNWP.pc, self.fluid, self.areaSPhase, self.gwSPhase, 
         self.gnwSPhase, self.maxCornerArea, self.maxCornerCond, self._cornArea, self._cornCond, 
-        self._centerArea, self._centerCond, self._areaWP, self._areaNWP, self._condWP, self._condNWP, 
-        self.conAng_cur, self.apexDist_cur, self.MOLECULAR_LENGTH, self.muw, self._delta, accurate, 
-        updateArea, overidetrapping)
+        self._centerArea, self._centerCond, self._areaWP, self._areaNWP, self._condWP, 
+        self._condNWP, self.conAng_cur, self.apexDist_cur, self.MOLECULAR_LENGTH, self.muw, 
+        self._delta, accurate, updateArea, overidetrapping)
 
 
 def __initCornerApex__(self):
@@ -1081,7 +1081,7 @@ def __fileName__(self):
 def saveState(self, fname):
 
     state_attrs = ['is_oil_inj', 'maxPc', 'Pc', 'wettClass', 'minthetai', 'maxthetai', 'delta', 
-                    'eta', 'distModel', 'sepAng', 'results_dir', 'results_str', '_areaWP', '_cornArea', '_areaNWP', '_centerArea', '_condWP', '_cornCond', '_condNWP', '_centerCond', 'areaWPhase', 'areaNWPhase', 'gWPhase', 'gNWPhase', 'contactAng', 'thetaRecAng', 'thetaAdvAng', 'Fd_Tr', 'Fd_Sq', 'PistonPcRec', 'centreEPOilInj', 'pop', 'update', 'NinElemList', 'capPresMax', 'capPresMin', 'qW', 'qNW', 'krw', 'krnw', 'totNumFill', 'prop_drainage', 'SwTarget', 'PcTarget', 'oldPcTarget', 'oldSatW', 'fillTarget', 'invInsideBox', 'cnt', 'fw', 'rpd', 'satW', 'rng', 'm_cornExists', 'm_initOrMaxPcHist', 'm_initOrMinApexDistHist', 'm_initedApexDist', 'm_advPc', 'm_recPc', 'PcD',  'fluid', 'cWP', 'cycle', 'cNWP']
+                    'eta', 'distModel', 'sepAng', 'results_dir', 'results_str', '_areaWP', '_cornArea', '_areaNWP', '_centerArea', '_condWP', '_cornCond', '_condNWP', '_centerCond', 'areaWPhase', 'areaNWPhase', 'gWPhase', 'gNWPhase', 'contactAng', 'thetaRecAng', 'thetaAdvAng', 'Fd_Tr', 'Fd_Sq', 'PistonPcRec', 'centreEPOilInj', 'pop', 'update', 'NinElemList', 'capPresMax', 'capPresMin', 'qW', 'qNW', 'krw', 'krnw', 'totNumFill', 'prop_drainage', 'SwTarget', 'PcTarget', 'oldPcTarget', 'oldSatW', 'fillTarget', 'invInsideBox', 'cnt', 'fw', 'rpd', 'satW', 'rng', 'm_cornExists', 'm_inited', 'm_initOrMaxPcHist', 'm_initOrMinApexDistHist', 'm_initedApexDist', 'm_advPc', 'm_recPc', 'PcD',  'fluid', 'cWP', 'cycle', 'cNWP']
 
     state = {attr: getattr(self, attr) for attr in state_attrs}
 
