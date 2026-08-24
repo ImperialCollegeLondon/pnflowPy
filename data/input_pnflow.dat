@@ -35,7 +35,7 @@ RES_DIR		 maxPc1e5/adjustClustVol/impP_1e6_D_4dot89minus9_H_7dot8minus6_clustPca
 SOLVER_TUNE  1.0E-30         8              0         F         0.0 ;
 
 % PORE_FILL_ALG    blunt2 ;
-PORE_FILL_WGT     15000.0  15000.0  15000.0  15000.0  15000.0  15000.0;
+PORE_FILL_WGT     0.0  15000.0  15000.0  15000.0  15000.0  15000.0;
 
 % FLuid properties:
 %   interfacial   water       oil       water          oil        water     oil
@@ -52,7 +52,8 @@ RAND_SEED        1099002   ;
 
 DRAIN_SINGLETS     T ;   % T for yes, F for no
 
-% Ostwald ripening settings:
-%		     transient	alpha	duration timestep	Diffusivity coefficient	  Imposed pressure Temperature	Henry's constant	moles_tol  pc_tol	 max_iter
-%		        mode	  		      (s)	   (s)		           (m2/s)			                (Pa)		        (K)	        (mol m-3 pa-1)	 (mols)     (Pa)
-RIPENING  	   T		0.617	  1200	   1.5	  	        4.89e-9			                1e6		         298		        7.8e-6		        1e-17	     1e-4	    50;
+% Ostwald ripening parameters:
+ RIPENING 
+ % mode  alpha  duration   dt     D       P   T       H      moles_tol   pc_tol  max_iter           
+ %                (s)	 (s)   (m2/s)  (Pa)	(K)	(mol/m3/pa)	 (mols)      (Pa)
+ 	T	 0.617	  1200	  1.5  4.89e-9	1e6	 298   7.8e-6	  1e-17	     1e-4	    50;
