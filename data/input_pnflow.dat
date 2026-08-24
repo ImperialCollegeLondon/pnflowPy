@@ -4,43 +4,55 @@ TITLE  Bentheimer ;  % base name for the output files
 
 NETWORK   F Bentheimer ;   % the base name for of the network file, without _link1.dat, _link2, _pore1
 
+%			load_from_a_file path_to_file ; 			% if true, simulation will commence from this state, network_state should be .pkl file
+LOAD_INIT_NETWORK_STATE		T		../demo/ostwald_ripening_results/imbibition_Bentheimer_1067.pkl ;
+%LOAD_INIT_RIPENING_STATE		T		../demo/ostwald_ripening_results/maxPc1e5/adjustClustVol/impP_1e6_D_4dot89minus9_H_7dot8minus6_clustPcalpha0dot617_minPc1eminus3_1swaiting_1/netsim_time_Dependent_1.pkl;
+
+
 SAT_CONTROL  % this keyword replaces SAT_TARGET in poreflow code
 % finalSat   maxPc    deltaSw   minDeltaPc   deltaPcFraction   calcKr  calcI  Inject from   Escape to
 % -------------------------------------------------------------------------   Left Right    Left Right 
- 0.0     2.5e4   0.1      1000.0        0.15           T       T        T    F         T   T       
- 1.00   -10000    0.1      10000.0        0.15           T       T        T    F         T   T         
- 0.0     2.5e4   0.1      1000.0        0.15           T       T        T    F         T   T       
- 1.00   -10000    0.1      10000.0        0.15           T       T        T    F         T   T          
+% 0.0     1e5   0.1      1000.0        0.15           T       T        T    F         T   T       
+% 1.00   -1000   0.1      100.0        0.15           T       T        T    F         T   T
+% 0.0   	1e5   0.1      1000.0        0.15           T       T        T    F         T   T       
+% 1.00   -1000    0.1      100.0        0.15           T       T        T    F         T   T
+% 0.0     1e5   0.1      1000.0        0.15           T       T        T    F         T   T       
+% 1.00   -1000    0.1      100.0        0.15           T       T        T    F         T   T                
 ;
 
 CALC_BOX   0.1 0.725;
 
 INIT_CONT_ANG  1  0 0  0.2   3.0   rand   0.0 ;
 
-EQUIL_CON_ANG   1  35.0 81.0  -0.08   -3.0   rand   0.0 ;
+EQUIL_CON_ANG   1  11.0 81.0  -0.08   -3.0   rand   0.0 ;
 
 RES_FORMAT   upscaling ; % Excel, Matlab or upscaling (text) output format
+
+RES_DIR		 maxPc1e5/adjustClustVol/impP_1e6_D_4dot89minus9_H_7dot8minus6_clustPcalpha0dot617_minPc1eminus3_1swaiting_3; % relative to the project dir
 
 %              min      Memory Scaling    Solver    Verbose  Conductance
 %           tolerance      Factor         output    Solver    cut-off
 SOLVER_TUNE  1.0E-30         8              0         F         0.0 ;
 
 % PORE_FILL_ALG    blunt2 ;
-PORE_FILL_WGT     0.0  15000  15000  15000  15000  15000  ;
+PORE_FILL_WGT     15000.0  15000.0  15000.0  15000.0  15000.0  15000.0;
 
 % FLuid properties:
 %   interfacial   water       oil       water          oil        water     oil
 %    tension    viscosity  viscosity  resistivity   resistivity  density  density
 %     (mN/m)      (cp)       (cp)      (Ohm.m)       (Ohm.m)     (kg/m3)  (kg/m3)
-FLUID  57.0         0.821       0.838         1.2         1000.0      1000.0   1000.0 ;
+FLUID  57.0         0.821       0.838         1.2         1000.0      1000.0   1000.0 ;  %CO2
+%FLUID  72.9         0.821       0.0094         1.2         1000.0      1000.0   1000.0 ;  %H2
 
 SAT_COVERGENCE
 %  minNumFillings   initStepSize   cutBack   maxIncr   stable disp
-       10              0.1          0.8       2.0          F ;
+       50              0.1          0.8       2.0          F ;
 
 RAND_SEED        1099002   ;
 
-
-
 DRAIN_SINGLETS     T ;   % T for yes, F for no
 
+% Ostwald ripening settings:
+%			transient	alpha	duration timestep	Diffusivity coefficient	  Imposed pressure Temperature	Henry's constant	moles_tol  pc_tol	 max_iter
+%			  mode	  			  (s)	   (s)				(m2/s)					(Pa)		 	 (K)	 (mol m-3 pa-1)		  (mols)    (Pa)
+RIPENING  	   T		0.617	  1200	   1.5	  		   4.89e-9					 1e6		     298		 7.8e-6			  1e-17		1e-4		50;
