@@ -53,6 +53,6 @@ RAND_SEED        1099002   ;
 DRAIN_SINGLETS     T ;   % T for yes, F for no
 
 % Ostwald ripening settings:
-%		transient	alpha	duration timestep	Diffusivity coefficient	  Imposed pressure Temperature	Henry's constant	moles_tol  pc_tol	 max_iter
-%		  mode	  		   (s)	   (s)		         (m2/s)			(Pa)		  (K)	        (mol m-3 pa-1)	 (mols)     (Pa)
-RIPENING  	   T		0.617	  1200	   1.5	  	        4.89e-9			1e6		  298		 7.8e-6		 1e-17	     1e-4	    50;
+%		     transient	alpha	duration timestep	Diffusivity coefficient	  Imposed pressure Temperature	Henry's constant	moles_tol  pc_tol	 max_iter
+%		        mode	  		      (s)	   (s)		           (m2/s)			                (Pa)		        (K)	        (mol m-3 pa-1)	 (mols)     (Pa)
+RIPENING  	   T		0.617	  1200	   1.5	  	        4.89e-9			                1e6		         298		        7.8e-6		        1e-17	     1e-4	    50;
