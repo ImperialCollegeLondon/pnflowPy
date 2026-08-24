@@ -45,6 +45,8 @@ def main():
         writeData = True
         fillTillNWDisconnected = True
         
+        netsim.weights = input_data.poreFillWgt()
+        
         state_data = input_data.loadState('LOAD_INIT_NETWORK_STATE')
         if state_data[0]=='T':
             file_path = state_data[1]
@@ -135,15 +137,15 @@ def main():
     return 0
 
 
-def load_file(file_path, netsim):
-    try:
-        loaded_obj = joblib.load(file_path)
-        do.updateObj(netsim, loaded_obj)
-        write_drainage_result(netsim)
-        return 0
-    except Exception as exc:
-        print("\n\n Exception on processing of loaded state: \n", exc, "Aborting!\n")
-        return 1
+# def load_file(file_path, netsim):
+#     try:
+#         loaded_obj = joblib.load(file_path)
+#         do.updateObj(netsim, loaded_obj)
+#         write_drainage_result(netsim)
+#         return 0
+#     except Exception as exc:
+#         print("\n\n Exception on processing of loaded state: \n", exc, "Aborting!\n")
+#         return 1
 
 
 def write_drainage_result(self):

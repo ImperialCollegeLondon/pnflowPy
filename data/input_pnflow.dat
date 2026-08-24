@@ -26,7 +26,7 @@ RES_FORMAT   upscaling ; % Excel, Matlab or upscaling (text) output format
 SOLVER_TUNE  1.0E-30         8              0         F         0.0 ;
 
 % PORE_FILL_ALG    blunt2 ;
-% PORE_FILL_WGT     0.0  0.5  1.0  2.0  5.0  10.0  ;
+PORE_FILL_WGT     0.0  15000  15000  15000  15000  15000  ;
 
 % FLuid properties:
 %   interfacial   water       oil       water          oil        water     oil
