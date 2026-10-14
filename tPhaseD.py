@@ -205,7 +205,7 @@ def popUpdateOilInj(self):
     self.NinElemList[k] = True
     capPres = self.PcD[k]
     self.capPresMax = max(self.capPresMax, capPres)
-          
+
     if not self.cWP.trapped[k]:
         self.cNWP.fill_with_phase(k, self.capPresMax, self)
         self.PistonPcRec[k] = self.centreEPOilInj[k]
@@ -217,7 +217,7 @@ def popUpdateOilInj(self):
         self.cnt += 1
         self.invInsideBox += self.isinsideBox[k]
         update_PcD_ToFill(self, arr)
-
+    
 
 def __computePc__(self, arrr, Fd):
     Pc = self.sigma*(1+2*np.sqrt(pi*self.Garray[arrr]))*np.cos(

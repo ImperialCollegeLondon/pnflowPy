@@ -46,30 +46,30 @@ def main():
         fillTillNWDisconnected = True
         
         netsim.weights = input_data.poreFillWgt()
-        
-        state_data = input_data.loadState('LOAD_INIT_NETWORK_STATE')
-        if state_data[0]=='T':
-            file_path = state_data[1]
-            try:
-                loaded_obj = joblib.load(file_path)
-                netsim.satW = loaded_obj['satW']
-            except Exception as exc:
-                print("\n\n Exception on processing of loaded state: \n", exc, "Aborting!\n")
-                return 1
-        
+
+        status, loaded_obj = load_file(input_data, 'LOAD_INIT_NETWORK_STATE')
+        if status=='T':
+            do.updateObj(netsim, loaded_obj)
+            netsim.areaWPhase = netsim._areaWP.view()
+            netsim.areaNWPhase = netsim._areaNWP.view()
+            netsim.gWPhase = netsim._condWP.view()
+            netsim.gNWPhase = netsim._condNWP.view()
+
+                
         # two Phase simulations
-        if input_data.satControl():
+        satControl = input_data.satControl()
+        if satControl:
             firstDrainCycle = True
             firstImbCycle = True
             firstCycle = True
             netsim.cycle = 0
             
-            for j in range(len(input_data.satControl())):
+            for j in range(len(satControl)):
                 netsim.finalSat, Pc, netsim.dSw, netsim.minDeltaPc,\
                     netsim.deltaPcFraction, netsim.calcKr, netsim.calcI,\
                     netsim.InjectFromLeft, netsim.InjectFromRight,\
                     netsim.EscapeFromLeft, netsim.EscapeFromRight =\
-                    input_data.satControl()[j]
+                    satControl[j]
                 netsim.filling = True
 
                 if netsim.finalSat < netsim.satW:
@@ -91,8 +91,7 @@ def main():
                         SecDrainage(netsim, writeData=writeData)
 
 
-                    if firstCycle and state_data[0]=='T':
-                        do.updateObj(netsim, loaded_obj)                        
+                    if firstCycle and status=='T':                     
                         netsim.capPresMax = netsim.Pc
                         
                     netsim.maxPc = Pc
@@ -117,10 +116,9 @@ def main():
                         SecImbibition(netsim, writeData=writeData)
 
 
-                    if firstCycle and state_data[0]=='T':
-                        do.updateObj(netsim, loaded_obj)                        
+                    if firstCycle and status=='T':                   
                         netsim.capPresMin = netsim.Pc
-                        
+                                                
                     netsim.minPc = Pc
                     netsim.fillTillNWDisconnected = fillTillNWDisconnected
                     tPhaseImb.imbibition(netsim)
@@ -137,16 +135,19 @@ def main():
     return 0
 
 
-# def load_file(file_path, netsim):
-#     try:
-#         loaded_obj = joblib.load(file_path)
-#         do.updateObj(netsim, loaded_obj)
-#         write_drainage_result(netsim)
-#         return 0
-#     except Exception as exc:
-#         print("\n\n Exception on processing of loaded state: \n", exc, "Aborting!\n")
-#         return 1
+def load_file(input_data, case):
+    loaded_obj = {}
+    state_data = input_data.loadState(case)
+    status = state_data[0]
+   
+    if status=='T':
+        file_path = state_data[1]
+        try:
+            loaded_obj = joblib.load(file_path)
+        except Exception as exc:
+            print("\n\n Exception on processing of loaded state: \n", exc, "Aborting!\n")
 
+    return status, loaded_obj
 
 def write_drainage_result(self):
     print('----------------------------------------------------------------------------------')
