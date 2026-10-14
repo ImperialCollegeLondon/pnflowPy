@@ -4,6 +4,7 @@ from numba.types import int32, float32, boolean, void, Tuple, int64, float64
 import pnflowPy.temp as temp
 import pnflowPy.utilities as do
 from scipy.sparse import csr_matrix
+from IPython import embed;
 
 _temp = temp.TempArrays()
 
@@ -57,6 +58,15 @@ class Cluster():
         self.flow_dir = np.zeros(totElements, dtype=np.bool_)
         self.gL = np.zeros(network.nThroats, dtype=np.float64)
 
+        self._tempClusterID = np.full(totElements, -5, dtype=np.int32)
+        self._elem_arr = np.zeros(totElements, dtype=np.int32)
+        self._elem_offset = np.zeros(totElements + 1, dtype=np.int32)
+        self._is_connected_arr = np.zeros(totElements, dtype=np.bool_)
+        self._is_trapped_arr = np.zeros(totElements, dtype=np.bool_)
+        self._pending_filled_elements = np.full(totElements, -5, dtype=np.int32)
+        self._pending_pc = 0.0
+        self._pending_idx = 0
+
     def __getitem__(self, key):
         if key < len(self.values):
             return self.values[key]
@@ -109,12 +119,23 @@ class Cluster():
         self.nClusters = newSize
                 
     
-    def fill_with_phase(self, i, Pc, network):
+    def fill_with_phase(self, i, Pc, network, fastClustering=True):
         network.fluid[i] = self.phase
         if self.hasFluid[i]: return
         self.hasFluid[i] = True
-        self.doClustering(np.asarray([i]), Pc, True, True, True)
-       
+
+        if fastClustering:
+            self._pending_filled_elements[self._pending_idx] = i
+            self._pending_idx += 1
+            if self._pending_idx==0 or self._pending_pc == Pc:
+                self._pending_pc = Pc
+            else:
+                self.doClustering(
+                    self._pending_filled_elements[:self._pending_idx], Pc, True, True, True)
+                self._pending_idx = 0
+        else:
+            self.doClustering(np.array([i]), Pc, True, True, True)
+
 
     def unfill_phase(self, i, Pc):
         ntwk = self.network
@@ -127,16 +148,35 @@ class Cluster():
         start, end = ntwk.cg_offsets[i], ntwk.cg_offsets[i+1]
         neigh = ntwk.connectivity_graph_flat[start:end]
         neigh = neigh[self.hasFluid[neigh]]
-        if neigh.size>0:
+        if neigh.size==0: self.next_elem_arr[i] = -5
+        size_k = self.sizes[k]
+
+        if self.next_elem_arr[i]==-5:
+            offset = self.mem_offsets[k+1]
+            self.mem_offsets[k+1:] -= 1
+            self.members[offset-1:-1] = self.members[offset:]
+            if size_k==0:
+                self.heads_arr[k] = -5
+            else:
+                self.next_elem_arr[self.members[offset-2]] = -5
+        elif size_k>1:
             self.doClustering(neigh, Pc, True, True, True)
+            self.next_elem_arr[i] = -5
         else:
             offset = self.mem_offsets[k]
             self.mem_offsets[k+1:] -= 1
             self.members[offset:-1] = self.members[offset+1:]
-            self.heads_arr[k] = -5
+            curr = neigh[0]
+            self.heads_arr[k] = curr
+            self.next_elem_arr[[i, curr]] = -5        
 
 
     def computeFlowrate(self, conductance, vector_mode=False):
+        if self._pending_idx>0:
+            self.doClustering(
+                self._pending_filled_elements[:self._pending_idx], self._pending_pc, 
+                True, True, True)
+            self._pending_idx = 0
         ntwk = self.network
         conn = (self.conn & ntwk.isinsideBox).astype(np.bool_)
 
@@ -164,32 +204,33 @@ class Cluster():
         ntwk = self.network
         totElements = ntwk.totElements
         
-        temp_clusterID = np.full(totElements, -5, dtype=np.int32)
+        self._tempClusterID.fill(-5)
         if np.ndim(pc_val) == 0:
             pc_val = np.full(arr.size, pc_val, dtype=np.float32)
-        self.doClusteringAssigning(arr, pc_val, temp_clusterID, updateConnectivity, ntwk)
-
+        self.doClusteringAssigning(arr, pc_val, self._tempClusterID, updateConnectivity, ntwk)
+        
 
     def doClusteringAssigning(self, arr, pc_val, temp_clusterID, updateConnectivity, ntwk):
         start_index = 0
-        elem_arr = np.zeros(ntwk.totElements, dtype=np.int32)
+        #elem_arr = np.zeros(ntwk.totElements, dtype=np.int32)
         nRoots = arr.size
-        elem_offset = np.zeros(nRoots+1, dtype=np.int32)
-        is_connected_arr = np.zeros(nRoots, dtype=np.bool_)
-        is_trapped_arr = np.ones(nRoots, dtype=np.bool_)
-
+        #self._elem_arr[arr].fill(0)
+        self._elem_offset[:nRoots + 1].fill(0)
+        self._is_connected_arr[:nRoots+1].fill(False)
+        self._is_trapped_arr[:nRoots+1].fill(True)
+        
         while True:
             status, start_index = parallel_exploration_dsu_with_assigning(arr, pc_val,
-                elem_arr, elem_offset, self.hasFluid, ntwk.connectivity_graph_flat,
-                ntwk.cg_offsets, self.sizes, self.clusterID, self.pc, temp_clusterID,
+                self._elem_arr, self._elem_offset, self.hasFluid, ntwk.connectivity_graph_flat,
+                ntwk.cg_offsets, self.sizes, self.clusterID, self.pc, self._tempClusterID,
                 ntwk.toInlet, ntwk.toOutlet, ntwk.toInBdr, ntwk.toOutBdr,
                 _temp.done, _temp.visited, self.members, self.mem_offsets,
                 self.heads_arr, self.next_elem_arr, self.trapped, self.trappedStatus,
                 self.conn, self.connected, self.neighbours_updated,
-                is_connected_arr, is_trapped_arr, updateConnectivity, start_index)
+                self._is_connected_arr, self._is_trapped_arr, updateConnectivity, start_index)
             if status==0: break
 
-            needed = np.unique(temp_clusterID[arr[start_index:]]).size
+            needed = np.unique(self._tempClusterID[arr[start_index:]]).size
             needed = max(int(np.ceil(ntwk.totElements/5000)*100), int(np.ceil(needed/100)*100))
             self.resizeClusters(needed)
 
@@ -466,7 +507,14 @@ def compute_qp_numba(P1array, P2array, tList, gL, nThroats, pres, poreList, c, a
 
 
 @njit(cache=True)
-def dsu_helper(cid, curr, is_connected, is_trapped, pc, sizes, clusterID, 
+def check_any_true(arr, indices):
+    for i in range(indices.size):
+        if arr[indices[i]]:
+            return True
+    return False
+
+@njit(cache=True)
+def dsu_helper1(cid, curr, is_connected, is_trapped, pc, sizes, clusterID, 
     clusterPc, trapped_arr, trappedStatus, conn_arr, connected, 
     neighbours_updated, updateConnectivity):
         
@@ -490,6 +538,32 @@ def dsu_helper(cid, curr, is_connected, is_trapped, pc, sizes, clusterID,
 
 
 @njit(cache=True)
+def dsu_helper(cid, curr, is_connected, is_trapped, pc, sizes, clusterID, 
+                         clusterPc, trapped_arr, trappedStatus, conn_arr, connected, 
+                         neighbours_updated, updateConnectivity):
+    
+    # Fast scalar accumulation of old cluster decrements (eliminates array slicing)
+    n_curr = curr.size
+    for i in range(n_curr):
+        elem = curr[i]
+        old_cid = clusterID[elem]
+        if old_cid >= 0:
+            sizes[old_cid] -= 1
+            neighbours_updated[old_cid] = False
+        
+        clusterID[elem] = cid
+        trapped_arr[elem] = is_trapped
+        if updateConnectivity:
+            conn_arr[elem] = is_connected
+
+    sizes[cid] += n_curr
+    connected[cid] = is_connected
+    trappedStatus[cid] = is_trapped
+    neighbours_updated[cid] = False
+    clusterPc[cid] = pc
+
+
+@njit(cache=True)
 def parallel_exploration_dsu_with_assigning(arr, pc_val, elem_arr, elem_offset, hasFluid, 
     cg_data, cg_offsets, sizes, clusterID, clusterPc, temp_clusterID, toInlet, toOutlet,
     toInBdr, toOutBdr, done, visited, members, mem_offsets, heads_arr, next_elem_arr, trapped_arr, 
@@ -509,11 +583,14 @@ def parallel_exploration_dsu_with_assigning(arr, pc_val, elem_arr, elem_offset, 
         
             m = n+curr.size        
             elem_arr[n:m] = curr
-            if i<nRoots:
-                elem_offset[i+1:] = m 
+            if i<nRoots: elem_offset[i+1:] = m 
             n = m        
             
             temp_clusterID[curr] = i
+            # if check_any_true(toInlet, curr): has_in = True
+            # if check_any_true(toOutlet, curr): has_out = True
+            # if check_any_true(toInBdr, curr): has_inB = True
+            # if check_any_true(toOutBdr, curr): has_outB = True
             if toInlet[curr].any(): has_in = True
             if toOutlet[curr].any(): has_out = True
             if toInBdr[curr].any(): has_inB = True
@@ -530,9 +607,11 @@ def parallel_exploration_dsu_with_assigning(arr, pc_val, elem_arr, elem_offset, 
     for i in range(start_index, nRoots):
         is_connected = is_connected_arr[i]
         is_trapped = is_trapped_arr[i]
-        curr = elem_arr[elem_offset[i]:elem_offset[i+1]]
-        
-        if not curr.any(): continue
+        start = elem_offset[i]
+        end = elem_offset[i+1]
+                
+        if start==end: continue
+        curr = elem_arr[start:end]
         if not is_connected:
             while free < nClusters and sizes[free] > 0:
                 free += 1

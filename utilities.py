@@ -4,6 +4,7 @@ from numba import njit, prange
 from numba.types import int32, float32, boolean, void, int64, float64
 import os
 import joblib
+import sys
 from .solver import Solver
 
 
@@ -245,9 +246,14 @@ def __wettabilityDistribution__(self, conAng=None, shuffle=True, randNum=None) -
     if randNum is None:
         randNum = self.rand(self.nThroats)
 
+
     if self.CAFile:
-        contactAng = np.loadtxt(os.path.join(self.data_dir, self.CAFile + '.dat'), dtype=np.float32)
-        contactAng[[0, -1]] = 0.0
+        try:
+            contactAng = np.loadtxt(self.CAFile, dtype=np.float32)
+            contactAng[[0, -1]] = 0.0
+        except:
+            print('Error loading contact angle file: {}'.format(self.CAFile))
+            sys.exit(1)
     else:
         conda = (self.P1array > 0)
         condb = (self.P2array > 0)
@@ -971,31 +977,29 @@ def updateObj(self, obj):
         if key not in selfDict:
             setattr(self, key, new_val)
             list_of_attr.append(key)
-            continue
+        else:
+            old_val = selfDict[key]
+            try:
+                if isinstance(old_val, np.ndarray) and isinstance(new_val, np.ndarray):
+                    # Compare arrays by shape and content
+                    if old_val.shape != new_val.shape or not np.all(old_val == new_val):
+                        # If both have bases and are arrays → update the base
+                        if (isinstance(old_val.base, np.ndarray) and 
+                            isinstance(new_val.base, np.ndarray)):
+                            old_val.base[:] = new_val
+                        else:
+                            old_val[:] = new_val
+                        list_of_attr.append(key)
+                else:
+                    # If not equal, update attribute
+                    if old_val != new_val:
+                        setattr(self, key, new_val)
+                        list_of_attr.append(key)
 
-        old_val = selfDict[key]
-
-        try:
-            if isinstance(old_val, np.ndarray) and isinstance(new_val, np.ndarray):
-                # Compare arrays by shape and content
-                if old_val.shape != new_val.shape or not np.all(old_val == new_val):
-                    # If both have bases and are arrays → update the base
-                    if (isinstance(old_val.base, np.ndarray) and 
-                        isinstance(new_val.base, np.ndarray)):
-                        old_val.base[:] = new_val
-                    else:
-                        old_val[:] = new_val
-                    list_of_attr.append(key)
-            else:
-                # If not equal, update attribute
-                if old_val != new_val:
-                    setattr(self, key, new_val)
-                    list_of_attr.append(key)
-
-        except (ValueError, TypeError, AttributeError):
-            # Fallback to setattr if any issue in comparison or assignment
-            setattr(self, key, new_val)
-            list_of_attr.append(key)
+            except (ValueError, TypeError, AttributeError):
+                # Fallback to setattr if any issue in comparison or assignment
+                setattr(self, key, new_val)
+                list_of_attr.append(key)
             
         if key=='cWP' or key=='cNWP':
             setattr(getattr(self, key), 'network', self) 
@@ -1082,7 +1086,8 @@ def saveState(self, fname):
 
     state_attrs = ['is_oil_inj', 'maxPc', 'Pc', 'wettClass', 'minthetai', 'maxthetai', 'delta', 
                     'eta', 'distModel', 'sepAng', 'results_dir', 'results_str', '_areaWP', '_cornArea', '_areaNWP', '_centerArea', '_condWP', '_cornCond', '_condNWP', '_centerCond', 'areaWPhase', 'areaNWPhase', 'gWPhase', 'gNWPhase', 'contactAng', 'thetaRecAng', 'thetaAdvAng', 'Fd_Tr', 'Fd_Sq', 'PistonPcRec', 'centreEPOilInj', 'pop', 'update', 'NinElemList', 'capPresMax', 'capPresMin', 'qW', 'qNW', 'krw', 'krnw', 'totNumFill', 'prop_drainage', 'SwTarget', 'PcTarget', 'oldPcTarget', 'oldSatW', 'fillTarget', 'invInsideBox', 'cnt', 'fw', 'rpd', 'satW', 'rng', 'm_cornExists', 'm_inited', 'm_initOrMaxPcHist', 'm_initOrMinApexDistHist', 'm_initedApexDist', 'm_advPc', 'm_recPc', 'PcD',  'fluid', 'cWP', 'cycle', 'cNWP']
-
+    
+    
     state = {attr: getattr(self, attr) for attr in state_attrs}
 
     additional_attrs = ['maxCornerCond', 'maxCornerArea', 'PcI', 'minPc', 'PistonPcAdv', 'porebodyPc', 'snapoffPc']

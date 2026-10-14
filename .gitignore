@@ -1,6 +1,7 @@
 # --- Python Specific ---
 __pycache__/
 *.py[cod]
+*.pyc
 *$py.class
 *.so
 .Python
@@ -66,3 +67,4 @@ desktop.ini
 .venv
 venv/
 ENV/
+main_tuning.py

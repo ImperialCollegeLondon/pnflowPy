@@ -220,7 +220,7 @@ def __computePistonPc__(self):
     condb = (self.fluid == 1) & (self.Garray < self.bndG2)  #polygons filled with w
     condc = (self.fluid == 1) & (self.Garray >= self.bndG2) #circles filled with nw
     condac = (conda | condc)
-    condac[0] = False
+    condac[[0,-1]] = False
 
     self.PistonPcAdv[condac] = 2.0*self.sigma*self.cosThetaAdvAng[condac]/self.Rarray[condac]
     conda = conda & (self.maxPc<self.PistonPcRec)
